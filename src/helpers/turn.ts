@@ -7,7 +7,7 @@
  * door rather than a queue.
  *
  * Shared rather than written twice: the contract suite would see each provider
- * refuse and never notice the two refuse different things.
+ * refuse and never notice they refuse different things.
  */
 
 import type { AiFailure } from "../types/failures.js";
