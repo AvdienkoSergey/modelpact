@@ -6,8 +6,8 @@
  * The rule lives here — a session that has spent more of the window than the
  * window holds — and nothing but this file decides it.
  *
- * A session is not an `EventTarget` by construction: both providers build one
- * as an object of closures. So the closures are assigned onto an instance of
+ * A session is not an `EventTarget` by construction: a provider builds one as
+ * an object of closures. So the closures are assigned onto an instance of
  * this class, the way `ProgressMonitor` carries `downloadprogress`.
  */
 
@@ -40,9 +40,9 @@ export class ContextEvents extends EventTarget {
   /**
    * Called with what the session now holds, after a turn has been charged.
    *
-   * Fires at most once. The window does not un-overflow: the daemon has already
-   * dropped the oldest turns to make the last one fit, and every turn after it
-   * is over the same line. A listener wants to hear that the conversation
+   * Fires at most once. The window does not un-overflow: the backend has
+   * already dropped the oldest turns to make the last one fit, and every turn
+   * after it is over the same line. A listener wants to hear that the conversation
    * started losing its beginning, not to be told again each turn.
    *
    * `unbounded` and `unknown` never fire — there is no line to cross.
