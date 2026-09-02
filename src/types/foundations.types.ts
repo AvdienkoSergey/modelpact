@@ -22,9 +22,15 @@ export type JsonSchema = Brand<Record<string, unknown>, "JsonSchema">;
 // functions — all of which reach `responseConstraint` and fail deep inside the
 // browser. `unknown` in: a schema almost always arrives from JSON.parse.
 export function jsonSchema(value: unknown): JsonSchema | null {
-  const plain =
-    typeof value === "object" && value !== null && !Array.isArray(value);
-  return plain ? (value as JsonSchema) : null;
+  if (typeof value !== "object" || value === null) return null;
+  // The prototype, not `Array.isArray`: `Date`, `Map` and `RegExp` are objects
+  // that pass every shape check and only fail once the browser tries to read
+  // them as a schema. What JSON.parse builds carries `Object.prototype`, and
+  // `Object.create(null)` carries none.
+  const proto: unknown = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null
+    ? (value as JsonSchema)
+    : null;
 }
 
 /**
