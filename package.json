@@ -26,14 +26,16 @@
     "postinstall": "patch-package",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:e2e": "playwright test",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit && tsc -p e2e --noEmit"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.62.1",
     "@types/dom-chromium-ai": "^0.0.17",
     "@types/node": "^26.4.1",
     "eslint": "^10.9.1",
