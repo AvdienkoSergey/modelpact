@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.2](https://github.com/AvdienkoSergey/modelpact/compare/v1.2.1...v1.2.2) (2026-09-02)
+
+
+### CI
+
+* one run per change, none on release pull requests ([14b3266](https://github.com/AvdienkoSergey/modelpact/commit/14b32661162ad74be38365aa1a93e8125019640f))
+* one run per change, none on release pull requests ([20a4e6f](https://github.com/AvdienkoSergey/modelpact/commit/20a4e6f8d3495aa405d821532e940fc6dbc4813b))
+
 ## [1.2.1](https://github.com/AvdienkoSergey/modelpact/compare/v1.2.0...v1.2.1) (2026-09-02)
 
 
