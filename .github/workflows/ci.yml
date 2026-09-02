@@ -1,29 +1,31 @@
 name: ci
 
-# Two triggers, filtered so a change is never checked twice. A branch push in
-# this repo would otherwise raise `push` and, once its PR exists,
-# `pull_request` — the same commit checked in two runs. `branches: [main]`
-# narrows the push half to the merge commit, so the split is: one run per PR
-# update, one run per landing on main. Fork PRs raise only `pull_request` and
-# are covered by that half.
+# Pull requests only, which is one run per change and no more. A `push` half
+# would check the merge commit a second time, against a tree this already
+# tested as `refs/pull/<n>/merge`. What that gives up is the case of two pull
+# requests green apart and broken together; "Require branches to be up to date
+# before merging" in branch protection closes it, by making the rebase re-run
+# this instead.
 on:
   pull_request:
-  push:
-    branches:
-      - main
 
 permissions:
   contents: read
 
 concurrency:
-  # `github.ref` is `refs/pull/<n>/merge` on a PR, so one group per PR and a
-  # new push cancels the run it superseded. Not on main: those runs stand for
-  # commits that are already in, and cancelling one would leave a gap.
+  # `github.ref` is `refs/pull/<n>/merge`, so one group per pull request and a
+  # new push cancels the run it superseded.
   group: ci-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: true
 
 jobs:
   check:
+    # A release pull request moves CHANGELOG.md, the version and the manifest,
+    # and nothing else — there is no code in it to check. Skipped at job level
+    # rather than with `paths-ignore` on purpose: a skipped job still reports,
+    # and a required check is satisfied by that, while a workflow that never
+    # starts leaves one pending forever.
+    if: ${{ !startsWith(github.head_ref, 'release-please--') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -50,6 +52,12 @@ jobs:
   # Its own job: installing a browser costs about as much as everything above
   # put together, and keeping it apart lets the fast checks report first.
   e2e:
+    # A release pull request moves CHANGELOG.md, the version and the manifest,
+    # and nothing else — there is no code in it to check. Skipped at job level
+    # rather than with `paths-ignore` on purpose: a skipped job still reports,
+    # and a required check is satisfied by that, while a workflow that never
+    # starts leaves one pending forever.
+    if: ${{ !startsWith(github.head_ref, 'release-please--') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
