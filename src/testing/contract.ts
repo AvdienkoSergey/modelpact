@@ -84,13 +84,14 @@ async function drain(stream: ReadableStream<string>): Promise<string[]> {
   for (;;) {
     const { done, value } = await reader.read();
     if (done) return chunks;
-    if (value !== undefined) chunks.push(value);
+    chunks.push(value);
   }
 }
 
 /** The `ready` branch or a failed test: every group below this line needs a session. */
 async function sessionFrom(access: ModelAccess): Promise<AiSession> {
-  if (access.kind !== "ready") throw new Error(`expected ready, got ${access.kind}`);
+  if (access.kind !== "ready")
+    throw new Error(`expected ready, got ${access.kind}`);
   const opened = await access.open();
   if (!opened.ok) throw new Error(`open refused: ${opened.error.kind}`);
   return opened.value;
@@ -104,26 +105,39 @@ const soon = (): AbortSignal => {
 };
 
 export function describeContract(name: string, make: ProviderFactory): void {
-  /** Opens a session for `ready`, or skips the test when the backend cannot stage the scenario. */
-  const staged = async (ctx: TestContext, scenario: Scenario): Promise<AiSession> => {
+  /**
+   * A session for the scenario, or null once the test has been marked skipped.
+   *
+   * Null rather than a throw or a narrowing `skip`: the caller returns on it,
+   * which the compiler follows without a non-null assertion.
+   */
+  const stage = async (
+    ctx: TestContext,
+    scenario: Scenario,
+  ): Promise<AiSession | null> => {
     const provider = await make(scenario);
-    if (provider === null) ctx.skip(`${scenario} cannot be staged`);
-    return sessionFrom(await provider!.access());
+    if (provider === null) {
+      ctx.skip(`${scenario} cannot be staged`);
+      return null;
+    }
+    return sessionFrom(await provider.access());
   };
 
   describe(`AiProvider contract: ${name}`, () => {
     describe("access", () => {
       test("resolves instead of throwing", async (ctx) => {
         const provider = await make("ready");
-        if (provider === null) ctx.skip();
-        const access = await provider!.access();
-        expect(["ready", "needs-download", "unavailable"]).toContain(access.kind);
+        if (provider === null) return ctx.skip();
+        const access = await provider.access();
+        expect(["ready", "needs-download", "unavailable"]).toContain(
+          access.kind,
+        );
       });
 
       test("unavailable carries a reason and no way to open", async (ctx) => {
         const provider = await make("unavailable");
-        if (provider === null) ctx.skip();
-        const access = await provider!.access();
+        if (provider === null) return ctx.skip();
+        const access = await provider.access();
         expect(access.kind).toBe("unavailable");
         if (access.kind !== "unavailable") return;
         expect(typeof access.reason.kind).toBe("string");
@@ -133,12 +147,14 @@ export function describeContract(name: string, make: ProviderFactory): void {
 
       test("the request is part of the question", async (ctx) => {
         const provider = await make("ready");
-        if (provider === null) ctx.skip();
+        if (provider === null) return ctx.skip();
         // A modality no text backend serves. Answering `ready` is allowed —
         // the contract does not promise a refusal — but an answer there must
         // be, and a refusal must name the vocabulary rather than throw.
-        const access = await provider!.access({ outputs: [{ type: "audio" }] });
-        expect(["ready", "needs-download", "unavailable"]).toContain(access.kind);
+        const access = await provider.access({ outputs: [{ type: "audio" }] });
+        expect(["ready", "needs-download", "unavailable"]).toContain(
+          access.kind,
+        );
         if (access.kind === "unavailable") {
           expect(typeof access.reason.kind).toBe("string");
         }
@@ -146,21 +162,24 @@ export function describeContract(name: string, make: ProviderFactory): void {
 
       test("needs-download reports progress, then opens", async (ctx) => {
         const provider = await make("needs-download");
-        if (provider === null) ctx.skip();
-        const access = await provider!.access();
+        if (provider === null) return ctx.skip();
+        const access = await provider.access();
         expect(access.kind).toBe("needs-download");
         if (access.kind !== "needs-download") return;
 
         const seen: number[] = [];
         const opened = await access.open((monitor) => {
-          monitor.ondownloadprogress = (event) => seen.push(event.loaded / event.total);
+          monitor.ondownloadprogress = (event) =>
+            seen.push(event.loaded / event.total);
         });
 
         expect(seen.length).toBeGreaterThan(0);
         // Never decreasing, and finished: a bar that goes backwards or stops
         // short is worse than no bar.
-        for (let i = 1; i < seen.length; i += 1) {
-          expect(seen[i]!).toBeGreaterThanOrEqual(seen[i - 1]!);
+        let previous = 0;
+        for (const value of seen) {
+          expect(value).toBeGreaterThanOrEqual(previous);
+          previous = value;
         }
         expect(seen.at(-1)).toBe(1);
         expect(opened.ok).toBe(true);
@@ -170,7 +189,8 @@ export function describeContract(name: string, make: ProviderFactory): void {
 
     describe("prompt", () => {
       test("answers with text", async (ctx) => {
-        const session = await staged(ctx, "ready");
+        const session = await stage(ctx, "ready");
+        if (session === null) return;
         const answer = await session.prompt("Name the capital of France.");
         expect(answer.ok).toBe(true);
         if (answer.ok) expect(answer.value.length).toBeGreaterThan(0);
@@ -178,7 +198,8 @@ export function describeContract(name: string, make: ProviderFactory): void {
       });
 
       test("usage grows from one turn to the next", async (ctx) => {
-        const session = await staged(ctx, "ready");
+        const session = await stage(ctx, "ready");
+        if (session === null) return;
         const before = session.usage();
         // A backend that reports no budget has nothing to compare.
         if (before.kind === "unknown") {
@@ -196,15 +217,18 @@ export function describeContract(name: string, make: ProviderFactory): void {
 
     describe("promptStream", () => {
       test("delivers the answer in more than one delta", async (ctx) => {
-        const session = await staged(ctx, "ready");
+        const session = await stage(ctx, "ready");
+        if (session === null) return;
         const started = await session.promptStream(LONG);
         expect(started.ok).toBe(true);
-        if (started.ok) expect((await drain(started.value)).length).toBeGreaterThan(1);
+        if (started.ok)
+          expect((await drain(started.value)).length).toBeGreaterThan(1);
         session.close();
       });
 
       test("stays a stream: tee gives two readable branches", async (ctx) => {
-        const session = await staged(ctx, "ready");
+        const session = await stage(ctx, "ready");
+        if (session === null) return;
         const started = await session.promptStream(LONG);
         if (!started.ok) throw new AiError(started.error);
         const [left, right] = started.value.tee();
@@ -216,7 +240,8 @@ export function describeContract(name: string, make: ProviderFactory): void {
 
     describe("schema", () => {
       test("a schema is honoured or refused, never ignored", async (ctx) => {
-        const session = await staged(ctx, "ready");
+        const session = await stage(ctx, "ready");
+        if (session === null) return;
         const answer = await session.prompt("Name the capital of France.", {
           schema: CONTRACT_SCHEMA,
         });
@@ -238,7 +263,8 @@ export function describeContract(name: string, make: ProviderFactory): void {
 
     describe("one at a time", () => {
       test("a second generation is refused while the first runs", async (ctx) => {
-        const session = await staged(ctx, "ready");
+        const session = await stage(ctx, "ready");
+        if (session === null) return;
         const first = session.prompt(LONG);
         const second = await session.prompt("and again");
         expect(second.ok).toBe(false);
@@ -248,7 +274,8 @@ export function describeContract(name: string, make: ProviderFactory): void {
       });
 
       test("a stream in flight holds the session too", async (ctx) => {
-        const session = await staged(ctx, "ready");
+        const session = await stage(ctx, "ready");
+        if (session === null) return;
         const started = await session.promptStream(LONG);
         if (!started.ok) throw new AiError(started.error);
         const during = await session.prompt("and again");
@@ -259,7 +286,8 @@ export function describeContract(name: string, make: ProviderFactory): void {
       });
 
       test("a finished stream frees the session", async (ctx) => {
-        const session = await staged(ctx, "ready");
+        const session = await stage(ctx, "ready");
+        if (session === null) return;
         const started = await session.promptStream(LONG);
         if (!started.ok) throw new AiError(started.error);
         await drain(started.value);
@@ -273,15 +301,19 @@ export function describeContract(name: string, make: ProviderFactory): void {
 
     describe("abort", () => {
       test("an already-aborted signal fails the call, not the process", async (ctx) => {
-        const session = await staged(ctx, "ready");
-        const answer = await session.prompt("hello", { signal: AbortSignal.abort() });
+        const session = await stage(ctx, "ready");
+        if (session === null) return;
+        const answer = await session.prompt("hello", {
+          signal: AbortSignal.abort(),
+        });
         expect(answer.ok).toBe(false);
         if (!answer.ok) expect(answer.error.kind).toBe("aborted");
         session.close();
       });
 
       test("aborting a prompt in flight fails it", async (ctx) => {
-        const session = await staged(ctx, "ready");
+        const session = await stage(ctx, "ready");
+        if (session === null) return;
         const answer = await session.prompt(LONG, { signal: soon() });
         expect(answer.ok).toBe(false);
         if (!answer.ok) expect(answer.error.kind).toBe("aborted");
@@ -289,7 +321,8 @@ export function describeContract(name: string, make: ProviderFactory): void {
       });
 
       test("aborting a stream in flight errors it", async (ctx) => {
-        const session = await staged(ctx, "ready");
+        const session = await stage(ctx, "ready");
+        if (session === null) return;
         const started = await session.promptStream(LONG, { signal: soon() });
         // Either the start is refused, or the stream errors partway: both are
         // the same refusal, and which one arrives depends on timing the
@@ -300,7 +333,8 @@ export function describeContract(name: string, make: ProviderFactory): void {
       });
 
       test("an aborted generation does not end the session", async (ctx) => {
-        const session = await staged(ctx, "ready");
+        const session = await stage(ctx, "ready");
+        if (session === null) return;
         await session.prompt(LONG, { signal: soon() });
         const next = await session.prompt("Name the capital of France.");
         expect(next.ok).toBe(true);
@@ -308,7 +342,8 @@ export function describeContract(name: string, make: ProviderFactory): void {
       });
 
       test("cancelling the reader does not end the session either", async (ctx) => {
-        const session = await staged(ctx, "ready");
+        const session = await stage(ctx, "ready");
+        if (session === null) return;
         const started = await session.promptStream(LONG);
         if (!started.ok) throw new AiError(started.error);
         const reader = started.value.getReader();
@@ -322,7 +357,8 @@ export function describeContract(name: string, make: ProviderFactory): void {
 
     describe("contextoverflow", () => {
       test("fires when a turn spends more than the window holds", async (ctx) => {
-        const session = await staged(ctx, "tiny-window");
+        const session = await stage(ctx, "tiny-window");
+        if (session === null) return;
         let fired = 0;
         session.oncontextoverflow = () => (fired += 1);
         await session.prompt(LONG);
@@ -335,7 +371,8 @@ export function describeContract(name: string, make: ProviderFactory): void {
       });
 
       test("stays quiet while the transcript fits", async (ctx) => {
-        const session = await staged(ctx, "ready");
+        const session = await stage(ctx, "ready");
+        if (session === null) return;
         let fired = 0;
         session.oncontextoverflow = () => (fired += 1);
         await session.prompt("hi");
@@ -344,7 +381,8 @@ export function describeContract(name: string, make: ProviderFactory): void {
       });
 
       test("the handler unsubscribes when set back to null", async (ctx) => {
-        const session = await staged(ctx, "tiny-window");
+        const session = await stage(ctx, "tiny-window");
+        if (session === null) return;
         let fired = 0;
         session.oncontextoverflow = () => (fired += 1);
         session.oncontextoverflow = null;
@@ -357,7 +395,8 @@ export function describeContract(name: string, make: ProviderFactory): void {
 
     describe("close", () => {
       test("later calls fail with aborted", async (ctx) => {
-        const session = await staged(ctx, "ready");
+        const session = await stage(ctx, "ready");
+        if (session === null) return;
         session.close();
         const answer = await session.prompt("hello");
         expect(answer.ok).toBe(false);
@@ -365,7 +404,8 @@ export function describeContract(name: string, make: ProviderFactory): void {
       });
 
       test("a call in flight fails too", async (ctx) => {
-        const session = await staged(ctx, "ready");
+        const session = await stage(ctx, "ready");
+        if (session === null) return;
         const flight = session.prompt(LONG);
         session.close();
         const answer = await flight;
@@ -374,7 +414,8 @@ export function describeContract(name: string, make: ProviderFactory): void {
       });
 
       test("a stream in flight errors", async (ctx) => {
-        const session = await staged(ctx, "ready");
+        const session = await stage(ctx, "ready");
+        if (session === null) return;
         const started = await session.promptStream(LONG);
         if (!started.ok) throw new AiError(started.error);
         session.close();
@@ -382,13 +423,15 @@ export function describeContract(name: string, make: ProviderFactory): void {
       });
 
       test("closing twice is a no-op", async (ctx) => {
-        const session = await staged(ctx, "ready");
+        const session = await stage(ctx, "ready");
+        if (session === null) return;
         session.close();
         expect(() => session.close()).not.toThrow();
       });
 
       test("usage still answers", async (ctx) => {
-        const session = await staged(ctx, "ready");
+        const session = await stage(ctx, "ready");
+        if (session === null) return;
         session.close();
         // Reading the meter is not generating: a closed session still knows
         // what it spent, which is what a caller shows after an abort.
