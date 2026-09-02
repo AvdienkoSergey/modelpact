@@ -22,7 +22,11 @@
   "engines": {
     "node": ">=22"
   },
+  "scripts": {
+    "postinstall": "patch-package"
+  },
   "devDependencies": {
-    "@types/dom-chromium-ai": "^0.0.17"
+    "@types/dom-chromium-ai": "^0.0.17",
+    "patch-package": "^8.0.1"
   }
 }
