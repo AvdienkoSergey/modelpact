@@ -1,5 +1,5 @@
 diff --git a/node_modules/@types/dom-chromium-ai/index.d.ts b/node_modules/@types/dom-chromium-ai/index.d.ts
-index 19587ab..ab27f11 100644
+index 19587ab..b5450be 100644
 --- a/node_modules/@types/dom-chromium-ai/index.d.ts
 +++ b/node_modules/@types/dom-chromium-ai/index.d.ts
 @@ -45,7 +45,7 @@ declare abstract class LanguageModel extends EventTarget implements DestroyableM
@@ -21,7 +21,31 @@ index 19587ab..ab27f11 100644
      | "creative"
      | "most-creative";
  
-@@ -191,12 +193,18 @@ interface LanguageModelMessage {
+@@ -153,11 +155,18 @@ type LanguageModelCreateOptions = LanguageModelCreateCoreOptions & {
+         | LanguageModelMessage[];
+ };
+ 
+-interface LanguageModelPromptOptions {
+-    responseConstraint?: Record<string, unknown>;
+-    omitResponseConstraintInput?: boolean;
+-    signal?: AbortSignal;
+-}
++// Not in IDL, split up here so omitResponseConstraintInput cannot be written
++// without the responseConstraint it refers to: the spec throws a TypeError for
++// that pair, and an intersection makes it unwritable instead.
++type LanguageModelPromptOptions =
++    & { signal?: AbortSignal }
++    & (
++        | {
++            responseConstraint: Record<string, unknown>;
++            omitResponseConstraintInput?: boolean;
++        }
++        | { responseConstraint?: never; omitResponseConstraintInput?: never }
++    );
+ 
+ interface LanguageModelAppendOptions {
+     signal?: AbortSignal;
+@@ -191,12 +200,18 @@ interface LanguageModelMessage {
  }
  
  // Not in IDL, split up here for allowing assistant messages with prefix in prompt() and promptStreaming() only
@@ -41,7 +65,7 @@ index 19587ab..ab27f11 100644
  // Not in IDL, split up here for enforcing the system message as the first element
  interface LanguageModelSystemMessage {
      role: LanguageModelSystemMessageRole;
-@@ -214,7 +222,7 @@ type LanguageModelAssistantMessageRole = "assistant";
+@@ -214,7 +229,7 @@ type LanguageModelAssistantMessageRole = "assistant";
  // Not in IDL, split up here for enforcing the system message as the first element
  type LanguageModelSystemMessageRole = "system";
  
