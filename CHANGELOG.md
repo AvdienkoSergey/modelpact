@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.2.0](https://github.com/AvdienkoSergey/modelpact/compare/v1.1.1...v1.2.0) (2026-09-02)
+
+
+### Features
+
+* shared helpers for provider behaviour ([4d2f8a0](https://github.com/AvdienkoSergey/modelpact/commit/4d2f8a0a06d5bd364d039bb80899e06ef586639e))
+
+
+### Bug Fixes
+
+* drop the .types suffix from files that carry values ([f31918c](https://github.com/AvdienkoSergey/modelpact/commit/f31918cbf1714a03ccd349c2577ff6c25ca02c76))
+
+
+### Documentation
+
+* rewrite README as a pitch, with helper diagrams ([32baee3](https://github.com/AvdienkoSergey/modelpact/commit/32baee39398dd001beac3f6ae0a9601b1dd6aac6))
+
 ## [1.1.1](https://github.com/AvdienkoSergey/modelpact/compare/v1.1.0...v1.1.1) (2026-09-02)
 
 
