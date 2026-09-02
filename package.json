@@ -23,10 +23,16 @@
     "node": ">=22"
   },
   "scripts": {
-    "postinstall": "patch-package"
+    "postinstall": "patch-package",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
     "@types/dom-chromium-ai": "^0.0.17",
-    "patch-package": "^8.0.1"
+    "@types/node": "^26.4.1",
+    "patch-package": "^8.0.1",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.11"
   }
 }

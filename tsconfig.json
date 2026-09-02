@@ -1,0 +1,34 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    // "dom.asynciterable" is deliberately absent: it would add
+    // [Symbol.asyncIterator] to ReadableStream and allow `for await` over a
+    // stream, which is not portable in the browser (experimental in Safari).
+    // Without it the compiler forces a reader loop.
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    // The four below are on top of the usual strict set, and the contract
+    // rests on them. The first is load-bearing: without it `{ system:
+    // undefined }` passes as SessionOptions and every invariant that rests on
+    // an absent optional field falls apart.
+    "exactOptionalPropertyTypes": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noEmit": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    // Listed rather than auto-discovered: automatic @types inclusion did not
+    // pick this up here, and naming it says which globals the project expects.
+    // "node" joins the list when `client.ts` arrives and reads process.env —
+    // until then browser-side code cannot reach for `process` by accident.
+    "types": ["dom-chromium-ai"]
+    // No "skipLibCheck": the only third-party declarations here are the ones
+    // `patches/` rewrites, and checking them is how a broken patch is caught.
+  },
+  "include": ["src"]
+}
