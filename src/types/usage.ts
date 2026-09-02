@@ -1,4 +1,4 @@
-import { tokens, type Tokens } from "./foundations.types.js";
+import { tokens, type Tokens } from "./foundations.js";
 
 /**
  * Context accounting in tokens.

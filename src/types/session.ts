@@ -1,7 +1,7 @@
-import type { JsonSchema, Result } from "./foundations.types.js";
-import type { AiMessage } from "./messages.types.js";
-import type { ContextUsage } from "./usage.types.js";
-import type { AiFailure } from "./failures.types.js";
+import type { JsonSchema, Result } from "./foundations.js";
+import type { AiMessage } from "./messages.js";
+import type { ContextUsage } from "./usage.js";
+import type { AiFailure } from "./failures.js";
 
 /**
  * Per-session options. Modalities and tools are deliberately not here: they

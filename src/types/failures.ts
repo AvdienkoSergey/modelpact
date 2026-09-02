@@ -1,5 +1,5 @@
-import type { Modality } from "./messages.types.js";
-import type { ContextUsage } from "./usage.types.js";
+import type { Modality } from "./messages.js";
+import type { ContextUsage } from "./usage.js";
 
 // Prettier reindents this union and hoists the first member's doc above the
 // opening paren, where it reads as a doc for the whole intersection.
