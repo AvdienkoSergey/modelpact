@@ -29,6 +29,12 @@ export default defineConfig(
         "error",
         { ignoreArrowShorthand: true },
       ],
+      // A number in a template literal needs no ceremony; the rule is aimed at
+      // objects that stringify to "[object Object]".
+      "@typescript-eslint/restrict-template-expressions": [
+        "error",
+        { allowNumber: true },
+      ],
       // `while (true)` with a `break` is how a stream reader loop is written —
       // see the one in types.test-d.ts, which `for await` cannot replace here.
       "@typescript-eslint/no-unnecessary-condition": [
