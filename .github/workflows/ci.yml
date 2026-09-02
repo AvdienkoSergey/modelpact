@@ -1,0 +1,49 @@
+name: ci
+
+# Two triggers, filtered so a change is never checked twice. A branch push in
+# this repo would otherwise raise `push` and, once its PR exists,
+# `pull_request` — the same commit checked in two runs. `branches: [main]`
+# narrows the push half to the merge commit, so the split is: one run per PR
+# update, one run per landing on main. Fork PRs raise only `pull_request` and
+# are covered by that half.
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  # `github.ref` is `refs/pull/<n>/merge` on a PR, so one group per PR and a
+  # new push cancels the run it superseded. Not on main: those runs stand for
+  # commits that are already in, and cancelling one would leave a gap.
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      # `npm ci` over `npm install`: it installs the lockfile exactly and fails
+      # if package.json has drifted from it. postinstall runs patch-package,
+      # which the dom-chromium-ai types depend on.
+      - run: npm ci
+
+      # One job rather than three, so the install is paid once. `!cancelled()`
+      # keeps the later steps running after an earlier failure — a red run then
+      # names every problem instead of only the first.
+      - run: npm run typecheck
+      - if: ${{ !cancelled() }}
+        run: npm run lint
+      - if: ${{ !cancelled() }}
+        run: npm run format:check
+
+      # No `npm test` step yet: vitest has no files to run and exits 1 on that.
+      # It joins when the contract suite lands.
