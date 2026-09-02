@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.1.0](https://github.com/AvdienkoSergey/modelpact/compare/v1.0.0...v1.1.0) (2026-09-02)
+
+
+### Features
+
+* контракт провайдера языковой модели ([79bb1bc](https://github.com/AvdienkoSergey/modelpact/commit/79bb1bc53d14d15679c3c101e915ac0eec8389c3))
+
+
+### Build System
+
+* prettier, eslint и откат typescript до 6.0.3 ([eea8582](https://github.com/AvdienkoSergey/modelpact/commit/eea8582aabaf7462572a9309503eb9d3d8dfccf3))
+
 ## 1.0.0 (2026-09-02)
 
 
