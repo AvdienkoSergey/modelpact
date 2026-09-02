@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.3.0](https://github.com/AvdienkoSergey/modelpact/compare/v1.2.2...v1.3.0) (2026-09-02)
+
+
+### Features
+
+* **testing:** a contract suite shared by every provider ([0f0324a](https://github.com/AvdienkoSergey/modelpact/commit/0f0324a4e6e3e693fe0d94978c2da9f035dbcac4))
+* **testing:** a contract suite shared by every provider ([c5d0ff9](https://github.com/AvdienkoSergey/modelpact/commit/c5d0ff9da1dd66b65ed3579fa452c10bdb713510))
+
+
+### Refactoring
+
+* **testing:** drop non-null assertions from the suite ([b13617b](https://github.com/AvdienkoSergey/modelpact/commit/b13617bf342e5b5c8d0d39130845399268528f73))
+
 ## [1.2.2](https://github.com/AvdienkoSergey/modelpact/compare/v1.2.1...v1.2.2) (2026-09-02)
 
 
