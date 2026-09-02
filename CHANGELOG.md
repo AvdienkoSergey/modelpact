@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.2.1](https://github.com/AvdienkoSergey/modelpact/compare/v1.2.0...v1.2.1) (2026-09-02)
+
+
+### Documentation
+
+* drop stale counts from helper comments ([2a0327c](https://github.com/AvdienkoSergey/modelpact/commit/2a0327c4d170e387f118d2ce25522af23097f2a8))
+
+
+### Build System
+
+* allow numbers in template literals ([5d85dfc](https://github.com/AvdienkoSergey/modelpact/commit/5d85dfc2d5eb1f51996a774c001a93619a74b818))
+
 ## [1.2.0](https://github.com/AvdienkoSergey/modelpact/compare/v1.1.1...v1.2.0) (2026-09-02)
 
 
