@@ -22,9 +22,11 @@ jobs:
     steps:
       - uses: googleapis/release-please-action@v4
         with:
-          # A PAT, so the release PR triggers ci.yml: events raised by the
-          # default GITHUB_TOKEN start no workflows, and the checks on a release
-          # PR would never run. Falls back to the default token when the secret
+          # A PAT, so the release PR starts ci.yml at all. ci.yml skips its
+          # jobs on this branch, but it has to run to skip them: a skipped job
+          # reports and satisfies a required check, while a workflow the
+          # default GITHUB_TOKEN never triggered leaves that check pending and
+          # the PR unmergeable. Falls back to the default token when the secret
           # is unset, so this is safe to land before the secret exists.
           token: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}
           config-file: release-please-config.json
