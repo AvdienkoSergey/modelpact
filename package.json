@@ -1,0 +1,25 @@
+{
+  "name": "modelpact",
+  "version": "0.0.0",
+  "description": "A contract for language-model backends, and the test suite that proves yours conforms to it",
+  "keywords": [
+    "llm",
+    "ollama",
+    "prompt-api",
+    "contract-testing",
+    "conformance",
+    "adapter",
+    "on-device",
+    "typescript"
+  ],
+  "license": "MIT",
+  "author": "Sergey Avdienko",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AvdienkoSergey/modelpact.git"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  }
+}
