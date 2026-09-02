@@ -13,18 +13,18 @@
 // assertion Prettier splits across lines stops being covered. Those carry
 // `// prettier-ignore`. The break is loud, not silent — it surfaces as TS2578.
 
-import { jsonSchema, tokens } from "./types/foundations.types.js";
-import type { AiMessage } from "./types/messages.types.js";
-import { contextUsage, type ContextUsage } from "./types/usage.types.js";
-import type { AiFailure } from "./types/failures.types.js";
+import { jsonSchema, tokens } from "./types/foundations.js";
+import type { AiMessage } from "./types/messages.js";
+import { contextUsage, type ContextUsage } from "./types/usage.js";
+import type { AiFailure } from "./types/failures.js";
 import type {
   AiSession,
   DownloadMonitor,
   GenerateOptions,
   ModelAccess,
   SessionOptions,
-} from "./types/session.types.js";
-import type { AiProvider, ProviderName } from "./types/providers.types.js";
+} from "./types/session.js";
+import type { AiProvider, ProviderName } from "./types/provider.js";
 
 // --- 1. A session cannot be opened on an unavailable model ---
 export async function open(access: ModelAccess): Promise<AiSession | null> {

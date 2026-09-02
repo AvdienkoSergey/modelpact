@@ -1,5 +1,5 @@
-import type { ModelRequest } from "./messages.types.js";
-import type { ModelAccess } from "./session.types.js";
+import type { ModelRequest } from "./messages.js";
+import type { ModelAccess } from "./session.js";
 
 /**
  * A closed list, and closing it buys something concrete: a provider choice is

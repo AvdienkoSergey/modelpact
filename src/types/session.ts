@@ -1,7 +1,7 @@
-import type { JsonSchema, Result } from "./foundations.types.js";
-import type { AiMessage } from "./messages.types.js";
-import type { ContextUsage } from "./usage.types.js";
-import type { AiFailure } from "./failures.types.js";
+import type { JsonSchema, Result } from "./foundations.js";
+import type { AiMessage } from "./messages.js";
+import type { ContextUsage } from "./usage.js";
+import type { AiFailure } from "./failures.js";
 
 /**
  * Per-session options. Modalities and tools are deliberately not here: they
@@ -35,9 +35,9 @@ export interface GenerateOptions {
 /**
  * One generation at a time: while a `prompt` or a `promptStream` is running,
  * both calls fail with `busy`. A session is one transcript, and interleaving
- * two turns into it produces a history no caller can repair. Like the
- * guarantee on `close`, this one is runtime: a type cannot say "not while that
- * promise is pending".
+ * two turns into it produces a history no caller can repair; the refusal
+ * itself is `src/helpers/turn.ts`. Like the guarantee on `close`, this one is
+ * runtime: a type cannot say "not while that promise is pending".
  *
  * Callbacks are fields, not methods: `strictFunctionTypes` checks argument
  * types strictly only on function-typed properties, while method syntax stays
@@ -97,6 +97,8 @@ type OpenSession = (
  * `EventTarget` firing `downloadprogress` with a `ProgressEvent`. The browser's
  * own monitor satisfies this too, so a Prompt API provider can hand its one
  * through — `src/types.test-d.ts` checks that against the ambient declaration.
+ * `src/helpers/monitor.ts` is the implementation for a provider with no browser
+ * behind it.
  *
  * `ondownloadprogress` is the whole surface because it is the only typed way
  * in. An `addEventListener` overload narrowed to `downloadprogress` does not
@@ -107,9 +109,8 @@ type OpenSession = (
  * `addEventListener` and casts the event.
  *
  * What a provider owes a listener: `loaded` is 0..1, never decreasing, and
- * `total` is 1. That is the browser's own shape — its monitor reports a
- * fraction, not bytes (`docs/mdn/prompt_api/using/index.md`) — so a provider
- * counting bytes divides before it fires.
+ * `total` is 1 — see `DownloadProgressEvent` for where that normalization
+ * comes from, and `Fraction` for what carries it.
  */
 export interface DownloadMonitor extends EventTarget {
   ondownloadprogress: ((event: ProgressEvent) => void) | null;

@@ -15,6 +15,16 @@ export function tokens(value: number): Tokens | null {
   return Number.isInteger(value) && value >= 0 ? (value as Tokens) : null;
 }
 
+/**
+ * 0..1, for download progress. A brand of its own, not `Tokens`: a ratio and a
+ * percentage (0.5 against 50) are both numbers, and swapping them is silent.
+ */
+export type Fraction = Brand<number, "Fraction">;
+
+export function fraction(value: number): Fraction | null {
+  return value >= 0 && value <= 1 ? (value as Fraction) : null;
+}
+
 /** A plain object: not an array, `Date` or function. */
 export type JsonSchema = Brand<Record<string, unknown>, "JsonSchema">;
 
