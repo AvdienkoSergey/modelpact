@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.1.1](https://github.com/AvdienkoSergey/modelpact/compare/v1.1.0...v1.1.1) (2026-09-02)
+
+
+### Bug Fixes
+
+* jsonSchema пропускал Date, Map и RegExp ([7c81e44](https://github.com/AvdienkoSergey/modelpact/commit/7c81e44505634a6fc00125c467118c2fb6ea544b))
+
+
+### CI
+
+* проверки typecheck, lint и format на PR и на main ([b1ddad3](https://github.com/AvdienkoSergey/modelpact/commit/b1ddad3dae0185d8d181d33b2d068710157db545))
+* прогонять vitest и playwright ([bfa644f](https://github.com/AvdienkoSergey/modelpact/commit/bfa644fe7519837952ba282efe13713cccf50fc5))
+
 ## [1.1.0](https://github.com/AvdienkoSergey/modelpact/compare/v1.0.0...v1.1.0) (2026-09-02)
 
 
