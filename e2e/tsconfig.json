@@ -1,0 +1,10 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    // `node` lives here and nowhere else. Playwright's declarations reference
+    // `Buffer` and its runner is a Node process, while the root config leaves
+    // node out so browser-side code cannot reach for `process` by accident.
+    "types": ["node", "dom-chromium-ai"]
+  },
+  "include": ["."]
+}
