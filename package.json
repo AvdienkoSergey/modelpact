@@ -51,7 +51,9 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "typecheck": "tsc --noEmit && tsc -p e2e --noEmit",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
+    "external:orchestrator": "npm --prefix external/orchestrator test",
+    "external:orchestrator:surface": "npm --prefix external/orchestrator run check:surface"
   },
   "peerDependencies": {
     "vitest": ">=4"

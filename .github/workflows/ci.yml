@@ -101,6 +101,13 @@ jobs:
       - run: npm run external:surface
       - if: ${{ !cancelled() }}
         run: npm run external
+      # The second stranger: a child-process transport and a router that is
+      # itself a backend. Its live suite skips here — no claude, no daemon.
+      - run: npm ci --prefix external/orchestrator
+      - if: ${{ !cancelled() }}
+        run: npm run external:orchestrator:surface
+      - if: ${{ !cancelled() }}
+        run: npm run external:orchestrator
 
   # The same suites again, with a daemon answering. The `check` job runs them
   # with none, and the ollama specs skip there — this job is what makes that
