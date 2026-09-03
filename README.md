@@ -176,15 +176,15 @@ layer, and a fact lives on the type it is about: what a field means sits on the
 type rather than at every place it is read, so go-to-definition walks the
 reasoning instead of finding it restated.
 
-| File                                         | Holds                                                            |
-| -------------------------------------------- | ---------------------------------------------------------------- |
-| [`foundations.ts`](src/types/foundations.ts) | `Result`, and the branded `Tokens`, `Fraction`, `JsonSchema`.    |
-| [`messages.ts`](src/types/messages.ts)       | `AiMessage`, `Modality`, `ModelRequest`.                         |
-| [`usage.ts`](src/types/usage.ts)             | `ContextUsage` — unknown, unbounded or bounded.                  |
-| [`failures.ts`](src/types/failures.ts)       | `AiFailure`, the mapping `failureFrom`, and `AiError`.           |
-| [`session.ts`](src/types/session.ts)         | `AiSession`, `ModelAccess`, `DownloadMonitor`, the option types. |
-| [`provider.ts`](src/types/provider.ts)       | `ProviderName`, `AiProvider`.                                    |
-| [`backend.ts`](src/types/backend.ts)         | `ModelBackend`, `Model` — the four answers a provider supplies.  |
+| File                                         | Holds                                                                             |
+| -------------------------------------------- | --------------------------------------------------------------------------------- |
+| [`foundations.ts`](src/types/foundations.ts) | `Result`, and the branded `Tokens`, `Fraction`, `JsonSchema`.                     |
+| [`messages.ts`](src/types/messages.ts)       | `AiMessage`, `Modality`, `ModelRequest`.                                          |
+| [`usage.ts`](src/types/usage.ts)             | `ContextUsage` — unknown, unbounded or bounded — and `UsageKind`.                 |
+| [`failures.ts`](src/types/failures.ts)       | `AiFailure` and `FailureKind`, the mapping `failureFrom`, `AiError`.              |
+| [`session.ts`](src/types/session.ts)         | `AiSession`, `ModelAccess` and `AccessKind`, `DownloadMonitor`, the option types. |
+| [`provider.ts`](src/types/provider.ts)       | `ProviderName`, `AiProvider`.                                                     |
+| [`backend.ts`](src/types/backend.ts)         | `ModelBackend`, `Model` — the four answers a provider supplies.                   |
 
 Four ideas carry the rest:
 
@@ -205,6 +205,13 @@ for less and the other by sending something else.
 unavailable model" is not an error to check for at runtime — there is no
 expression for it.
 
+**A tag is a string, not an enum.** Every union here is discriminated by a
+`kind`, and `AccessKind`, `FailureKind` and `UsageKind` name those sets for a
+`Record` or a signature. They are derived aliases, so a new variant is in them
+already, and they stay types: `"ready"` still passes where one is asked for, and
+nothing of them reaches your bundle. An enum member would be a value, and a
+nominal one — your own `"ready"` would stop being assignable to ours.
+
 **A plain number is not a measurement.** `Tokens` and `Fraction` are separate
 brands over `number`, because a ratio and a percentage (0.5 against 50) are both
 numbers and swapping them is silent. A constructor that validates is the only way
@@ -222,7 +229,7 @@ that must **not** compile carries a `@ts-expect-error`, and TypeScript reports
 appear. So the file builds exactly while each listed state stays
 unrepresentable — loosen a type and the build breaks.
 
-It covers eleven of them:
+It covers twelve of them:
 
 1. A session cannot be opened on an unavailable model
 2. A result cannot be used without handling the failure
@@ -234,7 +241,8 @@ It covers eleven of them:
 8. The provider list is the app's, and switches over it stay exhaustive
 9. The stream stays a stream
 10. The monitor is the platform's, and ours passes for it
-11. The record is a snapshot, not a handle
+11. A kind alias names the set without closing it to literals
+12. The record is a snapshot, not a handle
 
 It falls under the project tsconfig's `include`, so `npm run typecheck` checks
 it. Vitest deliberately misses it — `include` there is `*.test.ts`.

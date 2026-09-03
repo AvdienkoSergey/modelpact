@@ -15,9 +15,14 @@
 
 import { jsonSchema, tokens } from "./types/foundations.js";
 import type { AiMessage } from "./types/messages.js";
-import { contextUsage, type ContextUsage } from "./types/usage.js";
-import type { AiFailure } from "./types/failures.js";
+import {
+  contextUsage,
+  type ContextUsage,
+  type UsageKind,
+} from "./types/usage.js";
+import type { AiFailure, FailureKind } from "./types/failures.js";
 import type {
+  AccessKind,
   AiSession,
   DownloadMonitor,
   GenerateOptions,
@@ -200,7 +205,31 @@ export async function stream(session: AiSession) {
 // only place the two declarations meet.
 export const platform = (monitor: CreateMonitor): DownloadMonitor => monitor;
 
-// --- 11. The record is a snapshot, not a handle ---
+// --- 11. A kind alias names the set without closing it to literals ---
+// Why these are type aliases and not enums: an enum member is a value, and a
+// nominal one, so a caller's own "ready" would stop being assignable and the
+// object behind it would reach their bundle. Derived is the other half — a
+// variant added to the union is in the alias rather than forgotten here.
+declare const openReady: Extract<ModelAccess, { kind: "ready" }>["open"];
+export const asKind: AccessKind = "needs-download";
+export const stillALiteral: ModelAccess["kind"] = asKind;
+// @ts-expect-error a kind that no variant carries
+export const notAKind: AccessKind = "downloading";
+// @ts-expect-error the alias is the tag alone, not the variant it came from
+export const notTheVariant: AccessKind = { kind: "ready", open: openReady };
+
+// A Record over the set is the shape these exist for: leave a key out and the
+// build names it.
+export function noticeFor(kind: FailureKind, usage: UsageKind): string {
+  const said: Record<UsageKind, string> = {
+    unknown: "no budget reported",
+    unbounded: "no limit",
+    bounded: "counting",
+  };
+  return `${kind}: ${said[usage]}`;
+}
+
+// --- 12. The record is a snapshot, not a handle ---
 // `history()` is for persisting, not for editing the session through it:
 // continuing a conversation goes through `open`, where the seed is checked.
 export function persist(session: AiSession): readonly AiMessage[] {

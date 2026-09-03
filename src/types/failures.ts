@@ -67,6 +67,9 @@ export type AiFailure = { readonly cause?: unknown } & (
   | { readonly kind: "unknown" }
 );
 
+/** Every kind in the vocabulary, under a name; derived, and a type rather than an enum — see `AccessKind` in `./session.ts`. */
+export type FailureKind = AiFailure["kind"];
+
 /**
  * Where thrown exceptions enter the vocabulary: whatever a provider caught
  * becomes an `AiFailure`, mapped by DOMException name. This is the generic
