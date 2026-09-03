@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.8.0](https://github.com/AvdienkoSergey/modelpact/compare/v1.7.0...v1.8.0) (2026-09-03)
+
+
+### Features
+
+* **providers:** Ollama, the first backend with a model behind it ([f55041d](https://github.com/AvdienkoSergey/modelpact/commit/f55041d5385d5fd6935e288d6157b1fc4f59be45))
+
 ## [1.7.0](https://github.com/AvdienkoSergey/modelpact/compare/v1.6.0...v1.7.0) (2026-09-03)
 
 
