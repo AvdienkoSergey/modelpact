@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.10.0](https://github.com/AvdienkoSergey/modelpact/compare/v1.9.0...v1.10.0) (2026-09-03)
+
+
+### Features
+
+* **external:** a backend written from outside, and what it found ([308799c](https://github.com/AvdienkoSergey/modelpact/commit/308799c8c19b45524597d2639b87ec5e0bba84bb))
+
 ## [1.9.0](https://github.com/AvdienkoSergey/modelpact/compare/v1.8.0...v1.9.0) (2026-09-03)
 
 
