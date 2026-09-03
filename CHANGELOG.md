@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.0.2](https://github.com/AvdienkoSergey/modelpact/compare/v2.0.1...v2.0.2) (2026-09-03)
+
+
+### Documentation
+
+* sell the direction, and say what is mature about it ([6618c93](https://github.com/AvdienkoSergey/modelpact/commit/6618c9308141d4033d49212461206a03600d8bb2))
+
+
+### CI
+
+* publish to npm on every release, and ship the licence the README promised ([787303e](https://github.com/AvdienkoSergey/modelpact/commit/787303ee658fd076547b184b6c850887e0db20a6))
+
 ## [2.0.1](https://github.com/AvdienkoSergey/modelpact/compare/v2.0.0...v2.0.1) (2026-09-03)
 
 
