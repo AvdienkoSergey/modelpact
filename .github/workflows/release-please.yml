@@ -35,14 +35,18 @@ jobs:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
-  # Runs once per release, on the commit the tag points at. `npm publish` runs
-  # `prepublishOnly`, which is the build, so what goes out is built from the
-  # tagged tree and nothing else. `--provenance` signs it with this workflow's
-  # identity, which is why the job needs `id-token: write`.
+  # Runs once per release, on the commit the tag points at. There is no token
+  # anywhere: npm is configured to trust this repository and this workflow
+  # file, so the runner exchanges its own OIDC identity for a short-lived
+  # credential at publish time — which is what `id-token: write` is for.
   #
-  # Needs `NPM_TOKEN` in the repository secrets: a granular automation token
-  # from npmjs.com with publish rights on `modelpact`. Until it exists the job
-  # fails at publish, loudly, and the GitHub release is still made.
+  # Set up at npmjs.com -> modelpact -> Settings -> Trusted publishing, where
+  # the workflow filename is spelled out exactly. Renaming this file stops
+  # publishing until that setting is renamed with it.
+  #
+  # `npm publish` runs `prepublishOnly`, which is the build, so what goes out
+  # is built from the tagged tree and nothing else. Provenance is signed on
+  # this path automatically, so `--provenance` is not passed for it.
   publish:
     needs: release-please
     if: ${{ needs.release-please.outputs.release_created }}
@@ -51,13 +55,13 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
           registry-url: https://registry.npmjs.org
           cache: npm
+      # Trusted publishing wants npm >= 11.5.1, and Node 22 still ships 10.x.
+      - run: npm install -g npm@latest
       - run: npm ci
-      - run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - run: npm publish --access public
