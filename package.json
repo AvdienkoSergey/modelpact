@@ -1,6 +1,6 @@
 {
   "name": "modelpact",
-  "version": "2.0.4",
+  "version": "2.0.5",
   "description": "A contract for language-model backends, and the test suite that proves yours conforms to it",
   "keywords": [
     "llm",

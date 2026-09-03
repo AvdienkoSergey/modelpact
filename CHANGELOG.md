@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.0.5](https://github.com/AvdienkoSergey/modelpact/compare/v2.0.4...v2.0.5) (2026-09-03)
+
+
+### CI
+
+* **deps:** bump googleapis/release-please-action from 4 to 5 in the actions group ([aa0c082](https://github.com/AvdienkoSergey/modelpact/commit/aa0c082d1cfc6e13299ce06b443bcf6cfcf36f5e))
+* hold TypeScript at 6 while the linter catches up ([a543c88](https://github.com/AvdienkoSergey/modelpact/commit/a543c88f1ccbeef3b6adb077506c5269d6d9b95c))
+* hold TypeScript at 6 while the linter catches up ([f9c9d66](https://github.com/AvdienkoSergey/modelpact/commit/f9c9d665456645133bf1b854b6034e97f2713582))
+
 ## [2.0.4](https://github.com/AvdienkoSergey/modelpact/compare/v2.0.3...v2.0.4) (2026-09-03)
 
 
