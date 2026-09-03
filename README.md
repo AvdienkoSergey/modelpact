@@ -1,5 +1,13 @@
 # modelpact
 
+[![npm](https://img.shields.io/npm/v/modelpact)](https://www.npmjs.com/package/modelpact)
+[![ci](https://github.com/AvdienkoSergey/modelpact/actions/workflows/ci.yml/badge.svg?event=pull_request)](https://github.com/AvdienkoSergey/modelpact/actions/workflows/ci.yml)
+![dependencies: 0](https://img.shields.io/badge/dependencies-0-brightgreen)
+![min+gzip: 4.9 kB](https://img.shields.io/badge/min%2Bgzip-4.9%20kB-blue)
+![types: TypeScript](https://img.shields.io/badge/types-TypeScript-3178c6)
+![node: ≥22](https://img.shields.io/badge/node-%E2%89%A522-339933)
+[![license: MIT](https://img.shields.io/badge/license-MIT-lightgrey)](LICENSE)
+
 **One way to talk to a local language model — the one built into the browser,
 Ollama on your machine, or a mock in your tests. Swap the backend, keep the
 code.**
@@ -48,21 +56,6 @@ aborted turn never gets in, so what you store is what the model actually saw.
 of megabytes move. You get a progress event; your users get a bar instead of a
 frozen page.
 
----
-
-**See it before you install it.** [`demo/`](demo/) is a chat on the mock
-provider: streaming, a stop button, a usage meter, an overflow warning, a
-download bar, and a conversation that comes back after a reload.
-
-```sh
-cd demo && npm install && npm run dev
-```
-
-Everything on that screen is one of the promises below, and the picker at the
-top swaps the backend without touching anything else.
-
----
-
 **Tests that need no GPU.** The mock provider is a first-class backend. Your
 suite runs on any CI box.
 
@@ -70,13 +63,95 @@ suite runs on any CI box.
 Run it through the same conformance suite the built-in providers pass. If it's
 green, it behaves like the others — not "probably", provably.
 
----
+## See it before you install it
 
-```
-Here, we'll show how easy it is to add the built-in granite4:350m model—which is only 708 MB in size—that runs on WebGL, even offline, and doesn't require an internet connection.
+[`demo/`](demo/) is one chat screen with a picker at the top. The picker holds
+six backends, and each of them was one line in
+[`demo/src/providers.ts`](demo/src/providers.ts) — nothing else on the screen
+knows which one is answering.
+
+```sh
+cd demo && npm install && npm run dev
 ```
 
----
+| Pick                                   | What answers                                                         |
+| -------------------------------------- | -------------------------------------------------------------------- |
+| `mock`, `mock-narrow`, `mock-download` | nothing: canned words, streamed one at a time, to stage every branch |
+| `ollama`                               | `granite4:350m` — 708 MB on your machine, offline once it is pulled  |
+| `prompt-api`                           | Chrome's built-in model, behind a consent button for its download    |
+| `webgpu`                               | `SmolLM2-360M` in the tab itself, from a package outside this repo   |
+
+<p align="center">
+  <img src="docs/screenshots/demo-overflow.png" width="49%" alt="The mock on a 60-token window: three turns in, the meter reads 140 / 60 and the overflow notice has fired once.">
+  <img src="docs/screenshots/demo-chrome.png" width="49%" alt="Chrome's built-in model with no weights on this machine yet: the chip says fetching weights, and the download waits for the button.">
+</p>
+
+Everything on that screen is one of the promises above: words arriving one at a
+time, a **Stop** that leaves the session open, the interrupted answer gone from
+the record, a meter, a chip per `AccessKind`, an overflow warning that fires
+once, a download bar that waits to be asked, and a conversation that survives a
+reload and stays in step across two tabs. Nine Playwright specs — one per
+promise, and one per real backend in the picker — drive it in Chromium and are
+the repo's whole browser suite.
+
+The last three rows are the point. A real model on a daemon, the browser's own
+model, and a model on WebGPU are not three integrations here. They are three
+entries in a registry, and the switch over that registry stays exhaustive — add
+a seventh and the build says where a sentence is missing.
+
+## The step, and what stands on it
+
+Talking to a model has three storeys. A transport reaches **one model**. A
+session holds **one conversation** with it and carries the guarantees — one
+generation at a time, an abort that leaves the session open, an overflow that
+fires once, a close that refuses everything after it. Above that, several
+models, a policy, a loop over turns: orchestration.
+
+modelpact is the middle storey, and it is deliberately only that.
+
+| Storey        | What lives there                      | Where                                                                                |
+| ------------- | ------------------------------------- | ------------------------------------------------------------------------------------ |
+| transport     | one model, four answers               | `ModelBackend` — three inside the package, two written outside it                    |
+| session       | one conversation, the guarantees      | **this package**, and nothing above it                                               |
+| orchestration | several models, a policy, a tool loop | [`external/orchestrator`](external/orchestrator), [`external/agent`](external/agent) |
+
+That is the direction this repo is developed in. The package does not grow up
+the stairs; what grows is what stands on it, and [`external/`](external/) is
+where that is tried — each package written the way a stranger would write it,
+against `modelpact` at `file:../..`, through the `exports` map, with no path into
+`src/`. Whatever the published API is not enough for shows up there first.
+
+**A transport from outside.** [`external/webgpu-provider`](external/webgpu-provider)
+is a model in the tab on WebGPU, through `@mlc-ai/web-llm`. It answers the same
+four questions, and `describeContract` runs against it: 34 green. It also found
+two real bugs — a published type that named a global consumers do not have, and a
+backend that errored its own stream and landed in `unknown` instead of `aborted`.
+Both fixed; both now have a guard. The demo depends on this package the way it
+would on anything from npm.
+
+**One storey up.** [`external/orchestrator`](external/orchestrator) puts Claude
+from `claude -p` and a local Ollama model in one conversation, with a policy
+deciding which side answers. Its first version was a `ModelBackend` composed of
+two — and it passed the suite while every guarantee leaked: a meter over two
+windows, an overflow that meant nothing for the other side. Rebuilt one storey
+up it needed **nothing new from the package**: `open({ history })` was already
+the door for handing a side the turns it missed. That is the test of whether a
+storey is right.
+
+**An agent, on the same storey.** [`external/agent`](external/agent) is a
+tool-calling loop over a `Brain` — two methods, `ask` and `record` — which is an
+`AiSession` or an orchestrator behind a two-line adapter. This contract has no
+tool protocol, and it did not need one: a tool call is a schema, honoured or
+refused and never ignored, and where a backend refuses (`claude -p` does,
+measured) the refusal picks prose mode rather than ending the run. A tool result
+goes back as the next user turn. The reference agent's shape survived; its
+`bash` tool and the hundred lines of path containment it needs did not.
+
+Three packages, three storeys, and the thing they share is fifteen exports and
+a test suite. Each export is there because something outside needed it; what is
+not there — storage, a router, a tool protocol, a third role — is not missing,
+it lives upstairs. The next transport is an afternoon and a green suite. The
+next policy or loop is a consumer, not a feature.
 
 ## Quick start
 
@@ -100,10 +175,11 @@ console.log(reply.ok ? reply.value : reply.error.kind);
 Swap `makeMockProvider` for any other provider and nothing below it changes.
 That is the whole point of the line.
 
-> **Early.** In: the contract, its type-level test, the lifecycle, the
+> **What is in.** The contract, its type-level test, the lifecycle, the
 > conformance suite, and three backends — the mock, Ollama, and Chrome's
-> built-in model. Everything a backend needs is exported, so an adapter written
-> outside this package is held to exactly the same standard.
+> built-in model. Everything a backend needs is exported, and two more backends
+> plus an orchestrator and an agent have been written outside the package on
+> exactly that — see [The step, and what stands on it](#the-step-and-what-stands-on-it).
 
 ### Bring your own backend
 
@@ -153,6 +229,34 @@ const name = findProviderName(
 const provider = name === null ? null : PROVIDERS[name];
 ```
 
+## Status
+
+**Versioned, and released by machine.** Semantic versioning from conventional
+commits: [release-please](https://github.com/googleapis/release-please) opens
+the release PR, [`CHANGELOG.md`](CHANGELOG.md) is written from the history, and
+the tagged tree is what `npm publish` builds, with provenance. A `!` in a commit
+is a major, and 2.0 was one — four public names changed for the better, and the
+changelog says which.
+
+**Small on purpose.** ESM only, zero runtime dependencies, and the whole entry
+is 13.6 kB minified, 4.9 kB gzipped, before tree-shaking takes the providers
+you do not import. `modelpact/testing` is a second entry with `vitest` as an
+optional peer, so an app that only consumes a provider never loads it.
+
+**Where it runs.** Node ≥ 22 for the Ollama backend and the suites; any current
+browser for a session over `fetch`; Chrome for the built-in model. The
+published declarations are checked by three outside packages with `skipLibCheck`
+off and `types: []` — if a `.d.ts` ever names a global you do not have, that
+build goes red before yours does.
+
+**What a pull request has to pass.** Typecheck, lint, format, the vitest suites,
+nine Playwright specs in Chromium, and the three packages under `external/` —
+their own tests and their surface guards — on every change, in one run.
+
+**Next.** An OpenAI-compatible HTTP backend: one transport for
+`/v1/chat/completions`, which is the cloud APIs, vLLM, LM Studio and a
+llama.cpp server at once. Same four answers, same suite.
+
 ---
 
 ## A Deep Dive for Techno-Geeks
@@ -161,7 +265,7 @@ const provider = name === null ? null : PROVIDERS[name];
 [the spec](docs/mdn/prompt_api/spec.md):
 several states the algorithm rejects at runtime are writable in the types. A TS
 error at the keyboard beats a `TypeError` in the browser, so
-[`patches/@types+dom-chromium-ai+0.0.17.patch`](patches/@types+dom-chromium-ai+0.0.17.patch) closes the gap. |
+[`patches/@types+dom-chromium-ai+0.0.17.patch`](patches/@types+dom-chromium-ai+0.0.17.patch) closes the gap.
 
 The patch is applied by `patch-package` on `prepare`, which runs for this repo
 and never for anyone installing the published package. `skipLibCheck` is
@@ -247,6 +351,22 @@ It covers twelve of them:
 It falls under the project tsconfig's `include`, so `npm run typecheck` checks
 it. Vitest deliberately misses it — `include` there is `*.test.ts`.
 
+## Contributing
+
+Conventional commits — release-please reads them — and a pull request against
+`main`; CI is the reviewer that has to say yes first. Everything it runs, runs
+locally:
+
+```sh
+npm ci
+npm run typecheck && npm run lint && npm run format:check && npm test
+npm run test:e2e            # Chromium; the demo server starts itself
+npm run external && npm run external:orchestrator && npm run external:agent
+```
+
+A backend is the most useful thing to bring. Four answers, `createProvider`,
+and `describeContract` green — see [Bring your own backend](#bring-your-own-backend).
+
 ## License
 
-MIT
+[MIT](LICENSE)

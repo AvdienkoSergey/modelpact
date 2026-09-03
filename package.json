@@ -18,6 +18,10 @@
     "type": "git",
     "url": "git+https://github.com/AvdienkoSergey/modelpact.git"
   },
+  "homepage": "https://github.com/AvdienkoSergey/modelpact#readme",
+  "bugs": {
+    "url": "https://github.com/AvdienkoSergey/modelpact/issues"
+  },
   "type": "module",
   "exports": {
     ".": {

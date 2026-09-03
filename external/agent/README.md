@@ -22,10 +22,10 @@ above both, as an ordinary consumer.
 So `runAgent` opens nothing, closes nothing, and owns no conversation. It is
 handed a `Brain` — two methods, `ask` and `record` — and loops.
 
-| Brain               | Is             | Adapter                   |
-| ------------------- | -------------- | ------------------------- |
-| one model           | `AiSession`    | `brainOfSession(session)` |
-| two behind a policy | `Orchestrator` | `brainOfChat(chat)`       |
+| Brain               | Is             | Adapter                     |
+| ------------------- | -------------- | --------------------------- |
+| one model           | `AiSession`    | `makeSessionBrain(session)` |
+| two behind a policy | `Orchestrator` | `makeChatBrain(chat)`       |
 
 Both adapters are two lines, because the library already did the work.
 

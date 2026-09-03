@@ -19,8 +19,11 @@ concurrency:
 jobs:
   release-please:
     runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
     steps:
       - uses: googleapis/release-please-action@v4
+        id: release
         with:
           # A PAT, so the release PR starts ci.yml at all. ci.yml skips its
           # jobs on this branch, but it has to run to skip them: a skipped job
@@ -31,3 +34,30 @@ jobs:
           token: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+
+  # Runs once per release, on the commit the tag points at. `npm publish` runs
+  # `prepublishOnly`, which is the build, so what goes out is built from the
+  # tagged tree and nothing else. `--provenance` signs it with this workflow's
+  # identity, which is why the job needs `id-token: write`.
+  #
+  # Needs `NPM_TOKEN` in the repository secrets: a granular automation token
+  # from npmjs.com with publish rights on `modelpact`. Until it exists the job
+  # fails at publish, loudly, and the GitHub release is still made.
+  publish:
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          registry-url: https://registry.npmjs.org
+          cache: npm
+      - run: npm ci
+      - run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
