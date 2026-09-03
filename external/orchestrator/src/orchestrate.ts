@@ -105,16 +105,6 @@ const openSessionOn = async (
     : access.open(() => undefined, options);
 };
 
-const drainStream = async (stream: ReadableStream<string>): Promise<string> => {
-  const reader = stream.getReader();
-  const answerParts: string[] = [];
-  for (;;) {
-    const chunk = await reader.read();
-    if (chunk.done) return answerParts.join("");
-    answerParts.push(chunk.value);
-  }
-};
-
 const makeSingleChunkStream = (text: string): ReadableStream<string> =>
   new ReadableStream<string>({
     start: (controller) => {
