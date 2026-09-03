@@ -78,7 +78,7 @@
     "eslint-config-prettier": "^10.1.8",
     "patch-package": "^8.0.1",
     "prettier": "^3.9.6",
-    "typescript": "~6.0.3",
+    "typescript": "~7.0.2",
     "typescript-eslint": "^8.69.0",
     "vitest": "^4.1.11"
   }
