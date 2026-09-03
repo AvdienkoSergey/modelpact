@@ -234,9 +234,16 @@ const provider = name === null ? null : PROVIDERS[name];
 **Versioned, and released by machine.** Semantic versioning from conventional
 commits: [release-please](https://github.com/googleapis/release-please) opens
 the release PR, [`CHANGELOG.md`](CHANGELOG.md) is written from the history, and
-the tagged tree is what `npm publish` builds, with provenance. A `!` in a commit
-is a major, and 2.0 was one — four public names changed for the better, and the
-changelog says which.
+the tagged tree is what `npm publish` builds. A `!` in a commit is a major, and
+2.0 was one — four public names changed for the better, and the changelog says
+which.
+
+**Published without a key.** npm trusts this repository and this workflow file
+by name, so the release job signs in with its own OIDC identity and a
+credential that lives for one publish. There is no long-lived token to leak,
+and every version carries a
+[provenance attestation](https://docs.npmjs.com/generating-provenance-statements)
+saying which commit and which workflow built it.
 
 **Small on purpose.** ESM only, zero runtime dependencies, and the whole entry
 is 13.6 kB minified, 4.9 kB gzipped, before tree-shaking takes the providers
