@@ -1,0 +1,61 @@
+name: I wrote a backend
+description: A transport this package does not ship — to say what was missing, or to have it listed.
+labels: [backend]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Backends written outside the package are how the published API is
+        tested. `external/webgpu-provider` found two real bugs that way, and
+        both are fixed because someone wrote this issue's ancestor.
+
+  - type: input
+    id: talks-to
+    attributes:
+      label: What it talks to
+      description: The runtime, daemon, endpoint or class behind it.
+      placeholder: llama.cpp server over HTTP · a WebSocket to a private gateway
+    validations:
+      required: true
+
+  - type: input
+    id: link
+    attributes:
+      label: Where it lives
+      description: A repository, a gist, or nothing at all if it is not public yet.
+    validations:
+      required: false
+
+  - type: dropdown
+    id: contract
+    attributes:
+      label: What `describeContract` says
+      description: From `modelpact/testing`, run against your provider.
+      options:
+        - Green
+        - Green, with scenarios skipped
+        - Red — that is what this issue is about
+        - Not run yet
+    validations:
+      required: true
+
+  - type: textarea
+    id: skipped-or-red
+    attributes:
+      label: Which scenarios skip or fail, and why
+      description: >
+        `needs-download` and `tiny-window` cannot be staged by every backend,
+        and skipping is the honest answer there. A red one is worth the detail.
+    validations:
+      required: false
+
+  - type: textarea
+    id: missing
+    attributes:
+      label: What the published API did not give you
+      description: >
+        The most valuable field in this form. Anything you had to work around,
+        re-declare, or reach past `exports` for — and what you did instead.
+        This is where the next export comes from.
+    validations:
+      required: true

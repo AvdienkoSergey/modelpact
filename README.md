@@ -360,19 +360,15 @@ it. Vitest deliberately misses it — `include` there is `*.test.ts`.
 
 ## Contributing
 
-Conventional commits — release-please reads them — and a pull request against
-`main`; CI is the reviewer that has to say yes first. Everything it runs, runs
-locally:
+A backend is the most useful thing to bring: four answers, `createProvider`,
+and `describeContract` green. [`CONTRIBUTING.md`](CONTRIBUTING.md) has the
+setup, every check CI runs and how to run it first, the commit convention, the
+two rules the conformance suite will otherwise find for you, and where a change
+belongs among the three storeys.
 
-```sh
-npm ci
-npm run typecheck && npm run lint && npm run format:check && npm test
-npm run test:e2e            # Chromium; the demo server starts itself
-npm run external && npm run external:orchestrator && npm run external:agent
-```
-
-A backend is the most useful thing to bring. Four answers, `createProvider`,
-and `describeContract` green — see [Bring your own backend](#bring-your-own-backend).
+[`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md) is the short version of be decent.
+[`SECURITY.md`](SECURITY.md) is how to report a vulnerability privately, and
+what this package does and does not do with what a model says.
 
 ## License
 

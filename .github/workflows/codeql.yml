@@ -1,0 +1,40 @@
+name: codeql
+
+# Unlike ci.yml, this one runs on `push` to main as well. Code scanning is
+# about the state of the default branch — that is what fills the Security tab
+# and what an alert is measured against — so a pull-request-only run would
+# leave it with nothing to compare to. The weekly run is for the case that
+# matters most here: a query added upstream finding something in code that has
+# not changed in months.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "0 6 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+      # What lets the job file alerts against the repository.
+      security-events: write
+    steps:
+      - uses: actions/checkout@v7
+      # No build step and no `npm ci`: this package emits nothing at analysis
+      # time that the sources do not already say, and CodeQL reads TypeScript
+      # directly. The suites, the demo and external/ are read too — they are
+      # the code a stranger runs first.
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: javascript-typescript
+      - uses: github/codeql-action/analyze@v4

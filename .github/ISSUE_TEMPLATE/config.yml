@@ -1,0 +1,10 @@
+# A blank issue stays available: not every report fits a form, and a
+# half-filled form is worse than a sentence.
+blank_issues_enabled: true
+contact_links:
+  - name: A vulnerability
+    url: https://github.com/AvdienkoSergey/modelpact/security/advisories/new
+    about: Report it privately rather than as an issue — see SECURITY.md.
+  - name: Before opening a pull request
+    url: https://github.com/AvdienkoSergey/modelpact/blob/main/CONTRIBUTING.md
+    about: Every check CI runs, the commit convention, and where a change belongs among the three storeys.
