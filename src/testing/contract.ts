@@ -21,8 +21,13 @@ import { describe, expect, test, type TestContext } from "vitest";
 
 import { jsonSchema, type JsonSchema } from "../types/foundations.js";
 import { AiError } from "../types/failures.js";
+import type { AiMessage } from "../types/messages.js";
 import type { AiProvider } from "../types/provider.js";
-import type { AiSession, ModelAccess } from "../types/session.js";
+import type {
+  AiSession,
+  ModelAccess,
+  SessionOptions,
+} from "../types/session.js";
 
 /**
  * `unavailable`, `needs-download` and a narrow window cannot be staged by every
@@ -89,10 +94,13 @@ async function drain(stream: ReadableStream<string>): Promise<string[]> {
 }
 
 /** The `ready` branch or a failed test: every group below this line needs a session. */
-async function sessionFrom(access: ModelAccess): Promise<AiSession> {
+async function sessionFrom(
+  access: ModelAccess,
+  options?: SessionOptions,
+): Promise<AiSession> {
   if (access.kind !== "ready")
     throw new Error(`expected ready, got ${access.kind}`);
-  const opened = await access.open();
+  const opened = await access.open(options);
   if (!opened.ok) throw new Error(`open refused: ${opened.error.kind}`);
   return opened.value;
 }
@@ -390,6 +398,94 @@ export function describeContract(name: string, make: ProviderFactory): void {
         await session.prompt(LONG);
         expect(fired).toBe(0);
         session.close();
+      });
+    });
+
+    describe("history", () => {
+      const HANDED: readonly AiMessage[] = [
+        { role: "user", content: "Name the capital of France." },
+        { role: "assistant", content: "Paris." },
+      ];
+
+      test("starts as what was handed at open", async (ctx) => {
+        const provider = await make("ready");
+        if (provider === null) return ctx.skip();
+        const session = await sessionFrom(await provider.access(), {
+          history: HANDED,
+        });
+        expect(session.history()).toEqual(HANDED);
+        session.close();
+      });
+
+      test("a completed prompt adds the question and the answer", async (ctx) => {
+        const session = await stage(ctx, "ready");
+        if (session === null) return;
+        const answer = await session.prompt("Name the capital of France.");
+        if (!answer.ok) throw new AiError(answer.error);
+        expect(session.history()).toEqual([
+          { role: "user", content: "Name the capital of France." },
+          { role: "assistant", content: answer.value },
+        ]);
+        session.close();
+      });
+
+      test("a drained stream adds the answer as one message", async (ctx) => {
+        const session = await stage(ctx, "ready");
+        if (session === null) return;
+        const started = await session.promptStream(LONG);
+        if (!started.ok) throw new AiError(started.error);
+        const deltas = await drain(started.value);
+        expect(session.history().at(-1)).toEqual({
+          role: "assistant",
+          content: deltas.join(""),
+        });
+        session.close();
+      });
+
+      test("only turns that returned ok are in it", async (ctx) => {
+        const session = await stage(ctx, "ready");
+        if (session === null) return;
+        const answer = await session.prompt(LONG, { signal: soon() });
+        // The record and the Result agree by construction: a turn that was
+        // refused or interrupted is in neither.
+        expect(session.history()).toHaveLength(answer.ok ? 2 : 0);
+        session.close();
+      });
+
+      test("a cancelled stream adds nothing", async (ctx) => {
+        const session = await stage(ctx, "ready");
+        if (session === null) return;
+        const started = await session.promptStream(LONG);
+        if (!started.ok) throw new AiError(started.error);
+        const reader = started.value.getReader();
+        await reader.read();
+        await reader.cancel();
+        expect(session.history()).toEqual([]);
+        session.close();
+      });
+
+      test("what was read does not change under later turns", async (ctx) => {
+        const session = await stage(ctx, "ready");
+        if (session === null) return;
+        const before = session.history();
+        await session.prompt("Name the capital of France.");
+        expect(before).toEqual([]);
+        session.close();
+      });
+
+      test("handed back to open, it continues the same conversation", async (ctx) => {
+        const provider = await make("ready");
+        if (provider === null) return ctx.skip();
+        const first = await sessionFrom(await provider.access());
+        await first.prompt("Name the capital of France.");
+        const saved = first.history();
+        first.close();
+        // A reload: the session is gone, the record is not.
+        const reopened = await sessionFrom(await provider.access(), {
+          history: saved,
+        });
+        expect(reopened.history()).toEqual(saved);
+        reopened.close();
       });
     });
 

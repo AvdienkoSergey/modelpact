@@ -38,6 +38,11 @@ there — the method doesn't exist on that branch. You cannot read an answer
 without handling the failure — the field isn't in the type. TypeScript catches
 it before your users do.
 
+**A conversation that survives a reload.** The session keeps the record: what
+you handed it, then every completed turn. Read it, store it, hand it back to
+`open` — same conversation. An aborted turn never gets in, so what you store is
+what the model actually saw.
+
 **Download progress for free.** The first time a browser model is used, hundreds
 of megabytes move. You get a progress event; your users get a bar instead of a
 frozen page.
@@ -209,7 +214,7 @@ that must **not** compile carries a `@ts-expect-error`, and TypeScript reports
 appear. So the file builds exactly while each listed state stays
 unrepresentable — loosen a type and the build breaks.
 
-It covers ten of them:
+It covers eleven of them:
 
 1. A session cannot be opened on an unavailable model
 2. A result cannot be used without handling the failure
@@ -221,6 +226,7 @@ It covers ten of them:
 8. The provider list is the app's, and switches over it stay exhaustive
 9. The stream stays a stream
 10. The monitor is the platform's, and ours passes for it
+11. The record is a snapshot, not a handle
 
 It falls under the project tsconfig's `include`, so `npm run typecheck` checks
 it. Vitest deliberately misses it — `include` there is `*.test.ts`.

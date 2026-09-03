@@ -9,6 +9,7 @@ import {
   createSessionLifetime,
   type SessionLifetime,
 } from "../helpers/lifetime.js";
+import { createTranscript, type Transcript } from "../helpers/transcript.js";
 import { err, ok, type Fraction, type Result } from "../types/foundations.js";
 import type { AiFailure } from "../types/failures.js";
 import type { ModelRequest } from "../types/messages.js";
@@ -22,6 +23,8 @@ export interface SessionState {
   /** Idle, generating or closed, and the only way between the three. */
   readonly lifetime: SessionLifetime;
   readonly events: ContextEvents;
+  /** Seeded from `options.history`; the backend got the same seed at `connect`. */
+  readonly transcript: Transcript;
 }
 
 export const openSession = async (
@@ -46,12 +49,14 @@ export const openSession = async (
     model: connected.value,
     lifetime: createSessionLifetime(),
     events,
+    transcript: createTranscript(options?.history),
   };
   const session = withEvents(events, {
     prompt: (input, generateOptions) => prompt(state, input, generateOptions),
     promptStream: (input, generateOptions) =>
       promptStream(state, input, generateOptions),
     usage: () => state.model.usage(),
+    history: () => state.transcript.entries(),
     close: () => closeSession(state),
   });
   return ok(session);

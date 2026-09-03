@@ -10,7 +10,7 @@
 
 import type { Fraction, JsonSchema, Result } from "./foundations.js";
 import type { AiFailure } from "./failures.js";
-import type { Modality, ModelRequest } from "./messages.js";
+import type { AiMessage, Modality, ModelRequest } from "./messages.js";
 import type { ProviderName } from "./provider.js";
 import type { SessionOptions } from "./session.js";
 import type { ContextUsage } from "./usage.js";
@@ -35,6 +35,12 @@ export interface GenerateRequest {
   /** The session's lifetime linked with the call's own; pass it on wherever the backend can be interrupted. */
   readonly signal: AbortSignal;
   readonly schema?: JsonSchema;
+  /**
+   * Every completed turn before this one, starting from what `connect` was
+   * handed; `input` is not in it. A backend that keeps its own record, as the
+   * Prompt API does, ignores this — a stateless one sends it whole.
+   */
+  readonly history: readonly AiMessage[];
 }
 
 /** One open connection to a model. Busy, abort and usage are checked around these calls, not inside them. */
