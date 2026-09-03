@@ -67,13 +67,13 @@ and it is the repo's whole browser suite:
 npm run test:e2e     # from the repo root; the demo server starts itself
 ```
 
-Six specs, one per row of the table above, plus a fixture that fails any of
-them on an uncaught error or an `error` in the console. They assert the
-contract, not the UI — a stream that has a shorter prefix partway, a stopped
-turn absent from the record with the session still usable, an overflow that
-fires once and stays once. The vitest suites check the same promises against
-the mock directly; these check they survive a bundler, React, and a person
-clicking.
+Nine specs — one per promise in the table above, and one per real backend in
+the picker — plus a fixture that fails any of them on an uncaught error or an
+`error` in the console. They assert the contract, not the UI — a stream that
+has a shorter prefix partway, a stopped turn absent from the record with the
+session still usable, an overflow that fires once and stays once. The vitest
+suites check the same promises against the mock directly; these check they
+survive a bundler, React, and a person clicking.
 
 ## Notes
 
