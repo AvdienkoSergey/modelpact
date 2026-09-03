@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.9.0](https://github.com/AvdienkoSergey/modelpact/compare/v1.8.0...v1.9.0) (2026-09-03)
+
+
+### Features
+
+* **providers:** Chrome's built-in model, and a gate in front of its weights ([1042a98](https://github.com/AvdienkoSergey/modelpact/commit/1042a988de720488c7487009c53f64cd789b7833))
+
 ## [1.8.0](https://github.com/AvdienkoSergey/modelpact/compare/v1.7.0...v1.8.0) (2026-09-03)
 
 
