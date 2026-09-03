@@ -18,6 +18,9 @@ export type ContextUsage =
       readonly remaining: Tokens;
     };
 
+/** Which of the three a measurement is, under a name; as `AccessKind` in `./session.ts`. */
+export type UsageKind = ContextUsage["kind"];
+
 /** The checked way to build one: no fractional total, no negative `remaining`. */
 export function contextUsage(used: Tokens, total: number): ContextUsage {
   if (total === Infinity) return { kind: "unbounded", used };

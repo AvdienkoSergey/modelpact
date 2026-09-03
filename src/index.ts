@@ -18,6 +18,7 @@ export { makeMockProvider, type MockConfig } from "./providers/mock.js";
 
 export type { AiProvider, ProviderName } from "./types/provider.js";
 export type {
+  AccessKind,
   AiSession,
   DownloadMonitor,
   GenerateOptions,
@@ -31,8 +32,17 @@ export type {
   ModalityExpectation,
   ModelRequest,
 } from "./types/messages.js";
-export { AiError, failureFrom, type AiFailure } from "./types/failures.js";
-export { contextUsage, type ContextUsage } from "./types/usage.js";
+export {
+  AiError,
+  failureFrom,
+  type AiFailure,
+  type FailureKind,
+} from "./types/failures.js";
+export {
+  contextUsage,
+  type ContextUsage,
+  type UsageKind,
+} from "./types/usage.js";
 export {
   err,
   fraction,

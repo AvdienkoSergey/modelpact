@@ -40,6 +40,8 @@
     "prepare": "patch-package",
     "build": "tsc -p tsconfig.build.json",
     "test": "vitest run",
+    "demo": "npm --prefix demo run dev",
+    "demo:check": "npm --prefix demo run typecheck",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "lint": "eslint .",

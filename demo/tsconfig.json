@@ -1,0 +1,21 @@
+{
+  // The demo's own, not the library's: React code under the library's extra
+  // strictness spends its time on ceremony rather than on showing the API.
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "noUnusedLocals": true,
+    "noImplicitReturns": true,
+    "noEmit": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "types": ["vite/client"],
+    // The same alias vite resolves, so the editor and the bundler agree.
+    "paths": { "modelpact": ["../src/index.ts"] }
+  },
+  "include": ["src", "vite.config.ts"]
+}

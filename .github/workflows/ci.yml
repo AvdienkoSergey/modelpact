@@ -70,6 +70,8 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
+      # The specs drive the demo, which playwright.config.ts boots itself.
+      - run: npm ci --prefix demo
       # Chromium only, matching the one project in playwright.config.ts.
       # `--with-deps` pulls the system libraries the runner image lacks.
       - run: npx playwright install --with-deps chromium
