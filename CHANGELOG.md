@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.0.0](https://github.com/AvdienkoSergey/modelpact/compare/v1.11.0...v2.0.0) (2026-09-03)
+
+
+### ⚠ BREAKING CHANGES
+
+* name the connection a connection, and the stream a stream
+
+### Refactoring
+
+* **demo:** rename so the demo scans, and never twice for one word ([8f54146](https://github.com/AvdienkoSergey/modelpact/commit/8f54146a71ee81c2d568a5e549dd4fec972e863e))
+* **external:** the same words in all three packages ([fa345cd](https://github.com/AvdienkoSergey/modelpact/commit/fa345cd16c63bbe57cb42e0dc4a093c8d97c6a71))
+* name the connection a connection, and the stream a stream ([ac57270](https://github.com/AvdienkoSergey/modelpact/commit/ac572706db582e9fb7852e6483aa016e59f541e0))
+* **src:** one word per thing, and the word says which thing ([37500f4](https://github.com/AvdienkoSergey/modelpact/commit/37500f4445e24dabd8c2037bc9c03b9caf9ab962))
+
 ## [1.11.0](https://github.com/AvdienkoSergey/modelpact/compare/v1.10.1...v1.11.0) (2026-09-03)
 
 
