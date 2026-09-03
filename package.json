@@ -53,7 +53,9 @@
     "typecheck": "tsc --noEmit && tsc -p e2e --noEmit",
     "prepublishOnly": "npm run build",
     "external:orchestrator": "npm --prefix external/orchestrator test",
-    "external:orchestrator:surface": "npm --prefix external/orchestrator run check:surface"
+    "external:orchestrator:surface": "npm --prefix external/orchestrator run check:surface",
+    "external:agent": "npm --prefix external/agent test",
+    "external:agent:surface": "npm --prefix external/agent run check:surface"
   },
   "peerDependencies": {
     "vitest": ">=4"
