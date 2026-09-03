@@ -27,12 +27,6 @@ const PATH_ARG = toSchema({
   additionalProperties: false,
 });
 
-const NO_ARGS = toSchema({
-  type: "object",
-  properties: {},
-  additionalProperties: false,
-});
-
 /** Inside, or refused by name. `..` and an absolute path both land outside and are caught the same way. */
 const resolveWithin = (root: string, askedPath: unknown): string => {
   if (typeof askedPath !== "string" || askedPath === "")

@@ -10,6 +10,8 @@
     "exactOptionalPropertyTypes": true,
     "noUncheckedIndexedAccess": true,
     "noImplicitReturns": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
     "noEmit": true,
     // On for one reason only: `@mlc-ai/web-llm` ships declarations that name
     // packages it does not depend on and a `chrome` namespace it does not
