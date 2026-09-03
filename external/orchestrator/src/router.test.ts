@@ -119,6 +119,44 @@ const sessionOf = async (
 };
 
 describe("router policies", () => {
+  test("a side sees the turns the other side answered", async () => {
+    // A backend that answers with how many earlier turns it was handed, made
+    // from a *provider* through `backendOf` — the mock echoes its input, so the
+    // history it saw is visible in what it says.
+    const counting = backendOf(
+      "counting",
+      makeMockProvider({ delayMs: 1, reply: (input) => [`${input}|`] }),
+    );
+    const routes: Route[] = [];
+    let turn = 0;
+    const provider = createProvider(
+      makeRouterBackend({
+        local: counting,
+        cloud: mockSide("cloud", says("CLOUD")),
+        // local, cloud, local: the third turn is the one that used to be blind.
+        policy: { kind: "predicate", cloudWhen: () => (turn += 1) === 2 },
+        onRoute: (r) => routes.push(r),
+      }),
+    );
+    const access = await provider.access();
+    if (access.kind !== "ready") throw new Error("expected ready");
+    const opened = await access.open();
+    if (!opened.ok) throw new Error("expected a session");
+    const session = opened.value;
+    await session.prompt("one");
+    await session.prompt("two");
+    const third = await session.prompt("three");
+    expect(routes).toEqual(["local", "cloud", "local"]);
+    // The mock's usage counts the history it was opened on: 4 earlier messages
+    // plus this turn. Under the old adapter it would have seen only its own two.
+    const usage = session.usage();
+    expect(third.ok).toBe(true);
+    expect(usage.kind).toBe("bounded");
+    if (usage.kind === "bounded") expect(usage.used).toBeGreaterThan(10);
+    expect(session.history()).toHaveLength(6);
+    session.close();
+  });
+
   test("predicate: the condition picks the side, and the record is one conversation", async () => {
     const routes: Route[] = [];
     const session = await sessionOf(

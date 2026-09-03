@@ -37,13 +37,18 @@ Claude answers.
 
 ## What it found
 
-**Providers out, backends in — the package hands out one and a router needs
-the other.** `makeOllamaProvider` and `makeMockProvider` return an `AiProvider`,
-and `makeRouterBackend` composes `ModelBackend`s. There is no
-`makeOllamaBackend`. [`src/backend-of.ts`](src/backend-of.ts) recovers one from a
-provider by re-deriving the four answers from the session API. It works, and it
-is the one place this package went around the public surface rather than
-through it. A `makeXBackend` beside each `makeXProvider` would remove it.
+**Providers out, backends in — and that is the right way round.** The
+package hands out `AiProvider`s, and a router composes `ModelBackend`s. There
+is no `makeOllamaBackend`, and this package first recommended one; withdrawn.
+The two are different kinds, not one thing in two wrappers: a backend is
+asked with the whole history on every turn, a provider's session keeps the
+conversation itself. So a provider cannot be unwrapped into a backend — it can
+only be _reopened_ on the router's history each turn, which is what
+[`src/backend-of.ts`](src/backend-of.ts) does. The first version opened once
+and reused the session, and the local side then missed every turn the cloud
+had answered; a test now sends local → cloud → local and checks the third
+turn saw the second. Composing two finished providers costs one `open` per
+turn, and that cost belongs to the composer, not to the package's surface.
 
 **`claude -p --json-schema` fails under `--tools ""` on 2.1.138** — `is_error`
 on the result line, no structured output. So a schema is refused with
