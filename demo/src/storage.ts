@@ -8,14 +8,14 @@
 
 import type { AiMessage } from "modelpact";
 
-const KEY = "modelpact-demo-chat";
+const STORAGE_KEY = "modelpact-demo-chat";
 
 export function loadRecord(): readonly AiMessage[] {
   try {
-    const stored = localStorage.getItem(KEY);
-    if (stored === null) return [];
-    const parsed: unknown = JSON.parse(stored);
-    return Array.isArray(parsed) ? (parsed as AiMessage[]) : [];
+    const storedJson = localStorage.getItem(STORAGE_KEY);
+    if (storedJson === null) return [];
+    const parsedValue: unknown = JSON.parse(storedJson);
+    return Array.isArray(parsedValue) ? (parsedValue as AiMessage[]) : [];
   } catch {
     // A private window, cleared site data, or something else in this key.
     return [];
@@ -24,7 +24,7 @@ export function loadRecord(): readonly AiMessage[] {
 
 export function saveRecord(record: readonly AiMessage[]): void {
   try {
-    localStorage.setItem(KEY, JSON.stringify(record));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(record));
   } catch {
     // Out of quota or blocked: the conversation still works, it just will not
     // be there next time.
@@ -32,7 +32,7 @@ export function saveRecord(record: readonly AiMessage[]): void {
 }
 
 export function clearRecord(): void {
-  localStorage.removeItem(KEY);
+  localStorage.removeItem(STORAGE_KEY);
 }
 
 /**
@@ -40,14 +40,14 @@ export function clearRecord(): void {
  * back on itself. A null key means the whole store was cleared.
  */
 export function watchRecord(
-  handle: (record: readonly AiMessage[]) => void,
+  onRecord: (record: readonly AiMessage[]) => void,
 ): () => void {
-  const listener = (event: StorageEvent): void => {
-    if (event.key !== KEY && event.key !== null) return;
-    handle(loadRecord());
+  const handleStorageEvent = (event: StorageEvent): void => {
+    if (event.key !== STORAGE_KEY && event.key !== null) return;
+    onRecord(loadRecord());
   };
-  window.addEventListener("storage", listener);
+  window.addEventListener("storage", handleStorageEvent);
   return () => {
-    window.removeEventListener("storage", listener);
+    window.removeEventListener("storage", handleStorageEvent);
   };
 }

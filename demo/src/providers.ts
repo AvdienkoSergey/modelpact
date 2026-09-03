@@ -17,25 +17,26 @@ import {
 import { makeWebGpuProvider } from "modelpact-webgpu";
 
 /** Long enough to watch arrive, and to reach the stop button before it ends. */
-const reply = (input: string): readonly string[] => {
-  const asked = input.trim().replace(/\s+/g, " ").slice(0, 60);
+const generateReply = (input: string): readonly string[] => {
+  const askedText = input.trim().replace(/\s+/g, " ").slice(0, 60);
   const sentence =
-    `You asked «${asked}». There is no model behind this: the mock streams ` +
+    `You asked «${askedText}». There is no model behind this: the mock streams ` +
     `a canned answer one word at a time, which is enough to show a stream, ` +
     `an abort that leaves the session open, and a window filling up.`;
-  return sentence.match(/\S+\s*/g) ?? ["…"];
+  const words = sentence.match(/\S+\s*/g) ?? ["…"];
+  return words;
 };
 
-const SETTINGS = { reply, delayMs: 45 };
+const MOCK_SETTINGS = { reply: generateReply, delayMs: 45 };
 
 export const PROVIDERS = defineProviders({
-  mock: makeMockProvider(SETTINGS),
+  mock: makeMockProvider(MOCK_SETTINGS),
   // Narrow enough that the second turn crosses the line.
-  "mock-narrow": makeMockProvider({ ...SETTINGS, contextWindow: 60 }),
+  "mock-narrow": makeMockProvider({ ...MOCK_SETTINGS, contextWindow: 60 }),
   // Enough steps that the bar is something you watch rather than something
   // you miss: the mock waits `delayMs` between them.
   "mock-download": makeMockProvider({
-    ...SETTINGS,
+    ...MOCK_SETTINGS,
     access: "needs-download",
     downloadSteps: [
       0, 0.06, 0.14, 0.23, 0.35, 0.44, 0.58, 0.7, 0.79, 0.88, 0.95, 1,
@@ -60,8 +61,8 @@ export type ProviderName = keyof typeof PROVIDERS;
 
 export const PROVIDER_NAMES = Object.keys(PROVIDERS) as ProviderName[];
 
-export function labelOf(name: ProviderName): string {
-  switch (name) {
+export function getProviderLabel(providerName: ProviderName): string {
+  switch (providerName) {
     case "mock":
       return "Mock";
     case "mock-narrow":

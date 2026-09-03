@@ -7,11 +7,15 @@ import type {
   UsageKind,
 } from "modelpact";
 
-import { PROVIDER_NAMES, labelOf, type ProviderName } from "./providers";
+import {
+  PROVIDER_NAMES,
+  getProviderLabel,
+  type ProviderName,
+} from "./providers";
 import { useChat, type Chat } from "./useChat";
 
 /** One line per branch of `ModelAccess`, which is the whole of that union. */
-const ACCESS: Record<AccessKind, string> = {
+const ACCESS_LABELS: Record<AccessKind, string> = {
   ready: "ready",
   "needs-download": "fetching weights",
   unavailable: "unavailable",
@@ -24,7 +28,7 @@ const ACCESS: Record<AccessKind, string> = {
  * kind added upstream reach someone as its own name, and keying by
  * `FailureKind` means the build stops here instead.
  */
-const NOTICE: Record<FailureKind, string> = {
+const FAILURE_NOTICES: Record<FailureKind, string> = {
   aborted:
     "Stopped. The turn is not in the record, so the words above are gone from it.",
   busy: "One generation at a time on a session",
@@ -41,7 +45,7 @@ const NOTICE: Record<FailureKind, string> = {
 };
 
 /** The two branches with no numbers to draw; `bounded` renders a bar instead. */
-const NO_BUDGET: Record<Exclude<UsageKind, "bounded">, string> = {
+const NO_BUDGET_LABELS: Record<Exclude<UsageKind, "bounded">, string> = {
   unknown: "budget unknown",
   unbounded: "no limit",
 };
@@ -50,33 +54,33 @@ const NO_BUDGET: Record<Exclude<UsageKind, "bounded">, string> = {
  * The branch until a session is open, and `ready` once one is: however the
  * download branch was reached, a session on the other side of it is ready.
  */
-function statusOf(chat: Chat): string {
+function getStatusLabel(chat: Chat): string {
   if (chat.access === null) return "asking…";
-  return chat.ready ? ACCESS.ready : ACCESS[chat.access];
+  return chat.ready ? ACCESS_LABELS.ready : ACCESS_LABELS[chat.access];
 }
 
 /** Three states, three prompts: nothing here should read as "still loading". */
-function placeholderFor(chat: Chat): string {
+function getPlaceholder(chat: Chat): string {
   if (chat.ready) return "Ask it something";
   return chat.awaitingDownload
     ? "Waiting on the download"
     : "Opening a session…";
 }
 
-function explain(failure: AiFailure): string {
-  const notice = NOTICE[failure.kind];
+function explainFailure(failure: AiFailure): string {
+  const notice = FAILURE_NOTICES[failure.kind];
   // Only some kinds carry a detail, and narrowing is what says which.
   return failure.kind === "busy" ? `${notice}: ${failure.detail}` : notice;
 }
 
 function Meter({ usage }: { usage: ContextUsage }) {
   if (usage.kind !== "bounded")
-    return <span className="meter-text">{NO_BUDGET[usage.kind]}</span>;
-  const share = Math.min(1, usage.used / usage.total);
+    return <span className="meter-text">{NO_BUDGET_LABELS[usage.kind]}</span>;
+  const usedShare = Math.min(1, usage.used / usage.total);
   return (
     <span className="meter">
       <span className="meter-bar">
-        <span className="meter-fill" style={{ width: `${share * 100}%` }} />
+        <span className="meter-fill" style={{ width: `${usedShare * 100}%` }} />
       </span>
       <span className="meter-text">
         {usage.used} / {usage.total}
@@ -86,16 +90,16 @@ function Meter({ usage }: { usage: ContextUsage }) {
 }
 
 export function App() {
-  const [name, setName] = useState<ProviderName>("mock");
+  const [providerName, setProviderName] = useState<ProviderName>("mock");
   const [draft, setDraft] = useState("");
-  const chat = useChat(name);
-  const busy = chat.streaming !== null;
+  const chat = useChat(providerName);
+  const isBusy = chat.streamingAnswer !== null;
 
-  const submit = (event: FormEvent) => {
+  const handleSubmit = (event: FormEvent) => {
     event.preventDefault();
-    const input = draft.trim();
-    if (input === "" || busy || !chat.ready) return;
-    chat.send(input);
+    const trimmedDraft = draft.trim();
+    if (trimmedDraft === "" || isBusy || !chat.ready) return;
+    chat.send(trimmedDraft);
     setDraft("");
   };
 
@@ -104,17 +108,19 @@ export function App() {
       <header>
         <h1>modelpact</h1>
         <select
-          value={name}
-          onChange={(event) => setName(event.target.value as ProviderName)}
+          value={providerName}
+          onChange={(event) =>
+            setProviderName(event.target.value as ProviderName)
+          }
         >
-          {PROVIDER_NAMES.map((one) => (
-            <option key={one} value={one}>
-              {labelOf(one)}
+          {PROVIDER_NAMES.map((optionName) => (
+            <option key={optionName} value={optionName}>
+              {getProviderLabel(optionName)}
             </option>
           ))}
         </select>
         <span className="status">
-          <span className="chip">{statusOf(chat)}</span>
+          <span className="chip">{getStatusLabel(chat)}</span>
           <Meter usage={chat.usage} />
         </span>
         <button type="button" onClick={chat.reset}>
@@ -130,9 +136,9 @@ export function App() {
           </button>
         </p>
       )}
-      {chat.downloading !== null && (
+      {chat.downloadProgress !== null && (
         <p className="notice">
-          Downloading weights… {Math.round(chat.downloading * 100)}%
+          Downloading weights… {Math.round(chat.downloadProgress * 100)}%
         </p>
       )}
       {chat.overflowed && (
@@ -147,23 +153,23 @@ export function App() {
             {message.content}
           </li>
         ))}
-        {chat.streaming !== null && (
-          <li className="assistant streaming">{chat.streaming || "…"}</li>
+        {chat.streamingAnswer !== null && (
+          <li className="assistant streaming">{chat.streamingAnswer || "…"}</li>
         )}
       </ol>
 
       {chat.failure !== null && (
-        <p className="notice warn">{explain(chat.failure)}</p>
+        <p className="notice warn">{explainFailure(chat.failure)}</p>
       )}
 
-      <form onSubmit={submit}>
+      <form onSubmit={handleSubmit}>
         <input
           value={draft}
-          placeholder={placeholderFor(chat)}
+          placeholder={getPlaceholder(chat)}
           onChange={(event) => setDraft(event.target.value)}
           disabled={!chat.ready}
         />
-        {busy ? (
+        {isBusy ? (
           <button type="button" onClick={chat.stop}>
             Stop
           </button>
