@@ -108,6 +108,14 @@ jobs:
         run: npm run external:orchestrator:surface
       - if: ${{ !cancelled() }}
         run: npm run external:orchestrator
+      # The third stranger: a tool-calling loop on the storey above a session.
+      # `--legacy-peer-deps` because npm 10 crashes resolving the optional
+      # `vitest` peer of a `file:` linked package.
+      - run: npm ci --prefix external/agent --legacy-peer-deps
+      - if: ${{ !cancelled() }}
+        run: npm run external:agent:surface
+      - if: ${{ !cancelled() }}
+        run: npm run external:agent
 
   # The same suites again, with a daemon answering. The `check` job runs them
   # with none, and the ollama specs skip there — this job is what makes that

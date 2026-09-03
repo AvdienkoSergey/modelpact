@@ -1,0 +1,32 @@
+{
+  "name": "modelpact-agent",
+  "private": true,
+  "type": "module",
+  "description": "A tool-calling agent on storey three: a loop over sessions the library already owns. Written from outside the package.",
+  "scripts": {
+    "build:host": "npm --prefix ../.. run build",
+    "typecheck": "npm run build:host && tsc --noEmit",
+    "check:surface": "npm run build && tsc -p tsconfig.surface.json",
+    "test": "npm run build:host && vitest run",
+    "build:only": "tsc -p tsconfig.build.json",
+    "build": "npm run build:host && npm run build:only",
+    "chat": "npm run build && node dist/chat.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "devDependencies": {
+    "@types/node": "^22.20.1",
+    "typescript": "~6.0.3",
+    "vitest": "^4.1.11"
+  },
+  "dependencies": {
+    "modelpact": "file:../.."
+  }
+}
