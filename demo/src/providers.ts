@@ -44,9 +44,9 @@ export const PROVIDER_NAMES = Object.keys(PROVIDERS) as ProviderName[];
 export function labelOf(name: ProviderName): string {
   switch (name) {
     case "mock":
-      return "Mock · 4096-token window";
+      return "Mock";
     case "mock-narrow":
-      return "Mock · 60-token window";
+      return "Mock · narrow window";
     case "mock-download":
       return "Mock · downloads first";
   }

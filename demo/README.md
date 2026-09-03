@@ -17,6 +17,7 @@ npm run dev
 | **Stop** halfway through         | `signal`, and a session that is still open afterwards         |
 | The interrupted answer vanishing | only completed turns reach `session.history()`                |
 | The meter beside the picker      | `session.usage()`                                             |
+| The chip beside it               | `AccessKind`, one line per branch of `ModelAccess`            |
 | "The conversation outgrew…"      | `oncontextoverflow`, fired once, on the narrow-window backend |
 | The progress line on first open  | the `needs-download` branch and its monitor                   |
 | Reload, and it is still there    | `session.history()` out, `open({ history })` back in          |
@@ -37,6 +38,11 @@ the rest of this app exists to make honest.
   storing it is `JSON.stringify` and nothing more.
 - [`src/providers.ts`](src/providers.ts) — the registry, and the exhaustive
   switch its keys buy.
+- [`src/App.tsx`](src/App.tsx) — three `Record`s keyed by `AccessKind`,
+  `FailureKind` and `UsageKind`. The middle one is the reason those aliases
+  exist: a UI that owes a sentence to every refusal the vocabulary has, and a
+  build that stops here when a new one is added rather than showing someone a
+  tag.
 
 ## Notes
 

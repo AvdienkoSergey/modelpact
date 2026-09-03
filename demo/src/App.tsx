@@ -1,26 +1,69 @@
 import { useState, type FormEvent } from "react";
-import type { AiFailure, ContextUsage } from "modelpact";
+import type {
+  AccessKind,
+  AiFailure,
+  ContextUsage,
+  FailureKind,
+  UsageKind,
+} from "modelpact";
 
 import { PROVIDER_NAMES, labelOf, type ProviderName } from "./providers";
-import { useChat } from "./useChat";
+import { useChat, type Chat } from "./useChat";
 
-/** What each refusal means for the person looking at the screen. */
+/** One line per branch of `ModelAccess`, which is the whole of that union. */
+const ACCESS: Record<AccessKind, string> = {
+  ready: "ready",
+  "needs-download": "fetching weights",
+  unavailable: "unavailable",
+};
+
+/**
+ * Every refusal the vocabulary has, in words a person can read.
+ *
+ * A `Record` rather than a switch with a default: the default is what lets a
+ * kind added upstream reach someone as its own name, and keying by
+ * `FailureKind` means the build stops here instead.
+ */
+const NOTICE: Record<FailureKind, string> = {
+  aborted:
+    "Stopped. The turn is not in the record, so the words above are gone from it.",
+  busy: "One generation at a time on a session",
+  "context-overflow":
+    "The window is full. Reset, or hand back a shorter conversation.",
+  failed: "The backend could not answer",
+  "invalid-input": "That message was not accepted",
+  "invalid-state": "The page is not fully active",
+  "not-allowed": "Blocked by this page's permissions policy",
+  unknown: "Something else went wrong",
+  unsupported: "No model API in this runtime",
+  "unsupported-config": "No model for what was asked for",
+  "unsupported-input": "That message was built wrong",
+};
+
+/** The two branches with no numbers to draw; `bounded` renders a bar instead. */
+const NO_BUDGET: Record<Exclude<UsageKind, "bounded">, string> = {
+  unknown: "budget unknown",
+  unbounded: "no limit",
+};
+
+/**
+ * The branch until a session is open, and `ready` once one is: however the
+ * download branch was reached, a session on the other side of it is ready.
+ */
+function statusOf(chat: Chat): string {
+  if (chat.access === null) return "asking…";
+  return chat.ready ? ACCESS.ready : ACCESS[chat.access];
+}
+
 function explain(failure: AiFailure): string {
-  switch (failure.kind) {
-    case "aborted":
-      return "Stopped. The turn is not in the record, so the words above are gone from it.";
-    case "busy":
-      return `Already generating: ${failure.detail}`;
-    case "context-overflow":
-      return "The window is full. Reset, or hand back a shorter conversation.";
-    default:
-      return `Refused: ${failure.kind}`;
-  }
+  const notice = NOTICE[failure.kind];
+  // Only some kinds carry a detail, and narrowing is what says which.
+  return failure.kind === "busy" ? `${notice}: ${failure.detail}` : notice;
 }
 
 function Meter({ usage }: { usage: ContextUsage }) {
   if (usage.kind !== "bounded")
-    return <span className="meter-text">{usage.kind}</span>;
+    return <span className="meter-text">{NO_BUDGET[usage.kind]}</span>;
   const share = Math.min(1, usage.used / usage.total);
   return (
     <span className="meter">
@@ -62,7 +105,10 @@ export function App() {
             </option>
           ))}
         </select>
-        <Meter usage={chat.usage} />
+        <span className="status">
+          <span className="chip">{statusOf(chat)}</span>
+          <Meter usage={chat.usage} />
+        </span>
         <button type="button" onClick={chat.reset}>
           Reset
         </button>

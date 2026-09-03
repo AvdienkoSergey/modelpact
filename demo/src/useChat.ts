@@ -11,6 +11,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AiError,
   err,
+  type AccessKind,
   type AiFailure,
   type AiMessage,
   type AiSession,
@@ -22,6 +23,8 @@ import { PROVIDERS, type ProviderName } from "./providers";
 import { clearRecord, loadRecord, saveRecord, watchRecord } from "./storage";
 
 export interface Chat {
+  /** Which branch the provider answered with, or null while it is being asked. */
+  readonly access: AccessKind | null;
   readonly record: readonly AiMessage[];
   /** The answer as it arrives; null when no turn is running. */
   readonly streaming: string | null;
@@ -44,9 +47,11 @@ export interface Chat {
 async function openSession(
   name: ProviderName,
   history: readonly AiMessage[],
+  onAccess: (kind: AccessKind) => void,
   onProgress: (loaded: number) => void,
 ): Promise<Result<AiSession, AiFailure>> {
   const access = await PROVIDERS[name].access();
+  onAccess(access.kind);
   if (access.kind === "unavailable") return err(access.reason);
   if (access.kind === "needs-download") {
     return access.open(
@@ -71,6 +76,7 @@ export function useChat(name: ProviderName): Chat {
   const [overflowed, setOverflowed] = useState(false);
   const [failure, setFailure] = useState<AiFailure | null>(null);
   const [downloading, setDownloading] = useState<number | null>(null);
+  const [access, setAccess] = useState<AccessKind | null>(null);
   const [ready, setReady] = useState(false);
 
   const session = useRef<AiSession | null>(null);
@@ -82,13 +88,21 @@ export function useChat(name: ProviderName): Chat {
     let current: AiSession | null = null;
     let live = true;
     setReady(false);
+    setAccess(null);
     setOverflowed(false);
     setFailure(null);
 
     void (async () => {
-      const opened = await openSession(name, seed, (loaded) => {
-        if (live) setDownloading(loaded);
-      });
+      const opened = await openSession(
+        name,
+        seed,
+        (kind) => {
+          if (live) setAccess(kind);
+        },
+        (loaded) => {
+          if (live) setDownloading(loaded);
+        },
+      );
       setDownloading(null);
       if (!live) {
         // Unmounted while opening, or the effect re-ran: this session belongs
@@ -176,6 +190,7 @@ export function useChat(name: ProviderName): Chat {
   }, []);
 
   return {
+    access,
     record,
     streaming,
     usage,
