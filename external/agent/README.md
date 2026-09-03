@@ -111,7 +111,15 @@ and a throw look like from inside, where the loop stops. `src/tools.test.ts`
 covers the one part of a tool that has to be right, which is not leaving the
 workspace.
 
-`src/live.test.ts` runs the real loop on a real model: `qwen3:14b` is given a
-workspace with a file in it and asked what colour the file names. It can only
-answer if the tool really ran and its output really came back — it answers
-teal, in about forty seconds.
+`src/live.test.ts` runs the real loop on both kinds of brain, with the same
+workspace and the same question: what colour does the file name. Either can
+only answer if the tool really ran and its output really came back.
+
+| Brain       | Schema   | Branch      | Answers |
+| ----------- | -------- | ----------- | ------- |
+| `qwen3:14b` | honoured | constrained | teal    |
+| `claude -p` | refused  | prose       | teal    |
+
+The second row is the point: a refusal picks the mode, it does not end the run.
+The unit tests reach that branch through a stub; this reaches it through the
+CLI that actually refuses.
