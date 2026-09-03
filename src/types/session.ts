@@ -156,3 +156,17 @@ export type ModelAccess =
         options?: SessionOptions,
       ) => Promise<Result<AiSession, AiFailure>>;
     };
+
+/**
+ * The three answers, under a name — for a `Record` keyed by them, or a
+ * signature that takes the answer without the payload. Derived, so a fourth
+ * variant extends it rather than being forgotten here.
+ *
+ * A type and not an enum, which is the point: `"ready"` still passes wherever
+ * one of these is asked for, so a caller keeps writing literals and importing
+ * nothing, and none of it reaches their bundle. An enum would be a value, and
+ * a nominal one — a caller's own `"ready"` would stop being assignable.
+ * `FailureKind` and `UsageKind` are the same for the other two unions worth
+ * switching on.
+ */
+export type AccessKind = ModelAccess["kind"];
