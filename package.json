@@ -19,11 +19,26 @@
     "url": "git+https://github.com/AvdienkoSergey/modelpact.git"
   },
   "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing/index.d.ts",
+      "import": "./dist/testing/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
   "engines": {
     "node": ">=22"
   },
   "scripts": {
-    "postinstall": "patch-package",
+    "prepare": "patch-package",
+    "build": "tsc -p tsconfig.build.json",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
@@ -31,7 +46,16 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "typecheck": "tsc --noEmit && tsc -p e2e --noEmit"
+    "typecheck": "tsc --noEmit && tsc -p e2e --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "peerDependencies": {
+    "vitest": ">=4"
+  },
+  "peerDependenciesMeta": {
+    "vitest": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

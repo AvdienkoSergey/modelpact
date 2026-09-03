@@ -2,15 +2,15 @@ import type { ModelRequest } from "./messages.js";
 import type { ModelAccess } from "./session.js";
 
 /**
- * A closed list, and closing it buys something concrete: a provider choice is
- * persisted as a string and comes back as one, so the code that turns it into a
- * provider is a switch that has to stay exhaustive. `src/types.test-d.ts`
- * holds one — add a member without a branch and the build breaks.
+ * Free-form, because a backend written outside this package names itself and
+ * the package cannot know that name in advance.
  *
- * "mock" is a member on the same footing as the other two, not a fixture
- * bolted on beside them.
+ * The exhaustive switch a persisted choice needs did not disappear, it moved:
+ * an app's registry is the only place the full set is known, and
+ * `src/providers/registry.ts` derives the union from it. `src/types.test-d.ts`
+ * holds one — add a member without a branch and the build breaks.
  */
-export type ProviderName = "prompt-api" | "ollama" | "mock";
+export type ProviderName = string;
 
 export interface AiProvider {
   readonly name: ProviderName;

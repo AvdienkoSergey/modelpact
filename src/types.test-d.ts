@@ -24,7 +24,8 @@ import type {
   ModelAccess,
   SessionOptions,
 } from "./types/session.js";
-import type { AiProvider, ProviderName } from "./types/provider.js";
+import type { AiProvider } from "./types/provider.js";
+import { defineProviders, findProviderName } from "./providers/registry.js";
 
 // --- 1. A session cannot be opened on an unavailable model ---
 export async function open(access: ModelAccess): Promise<AiSession | null> {
@@ -130,22 +131,42 @@ export async function requested(provider: AiProvider) {
   return access.kind;
 }
 
-// --- 8. The provider list is closed, and switches over it stay exhaustive ---
-// This is what the union is for: a saved choice returns from storage as a
-// string, and turning it back into a provider is a switch. Add a fourth member
-// without a branch here and noImplicitReturns fails the build.
-export function label(name: ProviderName): string {
+// --- 8. The provider list is the app's, and switches over it stay exhaustive ---
+// A saved choice returns from storage as a string, and turning it back into a
+// provider is a switch. The set it switches over is the app's registry, not a
+// union in this package: a backend written elsewhere names itself. Add a member
+// below without a branch and noImplicitReturns fails the build.
+const unavailable: AiProvider = {
+  name: "stub",
+  access: () =>
+    Promise.resolve({ kind: "unavailable", reason: { kind: "unsupported" } }),
+};
+const PROVIDERS = defineProviders({
+  "prompt-api": unavailable,
+  ollama: unavailable,
+});
+type AppProvider = keyof typeof PROVIDERS;
+
+export function label(name: AppProvider): string {
   switch (name) {
     case "prompt-api":
       return "built-in model";
     case "ollama":
       return "Ollama on localhost";
-    case "mock":
-      return "mock";
   }
 }
-// @ts-expect-error a typo is not a provider name
-export const typo: ProviderName = "olama";
+// @ts-expect-error a typo is not a key of this registry
+export const typo: AppProvider = "olama";
+// @ts-expect-error a string from storage is not a name until the registry says so
+export const unchecked: string = label(readSaved());
+
+declare function readSaved(): string;
+
+// The one way across: null when nobody registered it, a key when they did.
+export function chosen(saved: string): string {
+  const name = findProviderName(PROVIDERS, saved);
+  return name === null ? "none" : label(name);
+}
 
 // --- 9. The stream stays a stream ---
 // Not a prohibition but a presence check: these methods are why the contract

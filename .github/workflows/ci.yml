@@ -34,8 +34,8 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       # `npm ci` over `npm install`: it installs the lockfile exactly and fails
-      # if package.json has drifted from it. postinstall runs patch-package,
-      # which the dom-chromium-ai types depend on.
+      # if package.json has drifted from it. It runs `prepare`, which is
+      # patch-package, which the dom-chromium-ai types depend on.
       - run: npm ci
 
       # One job rather than three, so the install is paid once. `!cancelled()`
@@ -48,6 +48,10 @@ jobs:
         run: npm run format:check
       - if: ${{ !cancelled() }}
         run: npm test
+      # What ships is not what the checks above read: the build drops the
+      # suites and emits declarations, and only this step compiles that set.
+      - if: ${{ !cancelled() }}
+        run: npm run build
 
   # Its own job: installing a browser costs about as much as everything above
   # put together, and keeping it apart lets the fast checks report first.

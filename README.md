@@ -72,9 +72,9 @@ npm install modelpact
 ```
 
 ```ts
-import { promptApi } from "modelpact";
+import { makeMockProvider } from "modelpact";
 
-const access = await promptApi().access();
+const access = await makeMockProvider().access();
 if (access.kind !== "ready") return; // unavailable, or needs a download first
 
 const opened = await access.open({ system: "Answer in one sentence." });
@@ -84,9 +84,61 @@ const reply = await opened.value.prompt("What is this page about?");
 console.log(reply.ok ? reply.value : reply.error.kind);
 ```
 
-> **Early.** The contract and its type-level test are in; the providers and the
-> conformance suite are not yet. The API above is what they are being built
-> against — the shape is settled, the install is not.
+Swap `makeMockProvider` for any other provider and nothing below it changes.
+That is the whole point of the line.
+
+> **Early.** In: the contract, its type-level test, the lifecycle, the
+> conformance suite, and the mock. Not yet: the built-in providers for Chrome's
+> model and for Ollama. Everything they need is exported, so an adapter written
+> outside this package is held to exactly the same standard.
+
+### Bring your own backend
+
+A backend answers four questions. The lifecycle does the rest — one generation
+at a time, an abort that leaves the session open, an overflow that fires once, a
+close that refuses everything after it.
+
+```ts
+import { createProvider, ok, type ModelBackend } from "modelpact";
+
+const backend: ModelBackend = {
+  name: "echo",
+  modalities: ["text"],
+  availability: () => ({ kind: "ready" }),
+  connect: () => Promise.resolve(ok(model)), // your `generate`, `usage`, `dispose`
+};
+
+export const echo = createProvider(backend);
+```
+
+Then prove it behaves like the others:
+
+```ts
+import { describeContract } from "modelpact/testing";
+
+describeContract("echo", () => echo);
+```
+
+`modelpact/testing` needs `vitest`, which is an optional peer dependency: an app
+that only consumes a provider never loads it.
+
+### Several backends in one app
+
+The list of names belongs to the app, not to this package — a backend written
+elsewhere names itself. Your registry is where the set is known, so a switch over
+it stays exhaustive and a string out of storage cannot pretend to be a name.
+
+```ts
+import { defineProviders, findProviderName } from "modelpact";
+
+const PROVIDERS = defineProviders({ echo, mock: makeMockProvider() });
+
+const name = findProviderName(
+  PROVIDERS,
+  localStorage.getItem("provider") ?? "",
+);
+const provider = name === null ? null : PROVIDERS[name];
+```
 
 ---
 
@@ -98,14 +150,15 @@ several states the algorithm rejects at runtime are writable in the types. A TS
 error at the keyboard beats a `TypeError` in the browser, so
 [`patches/@types+dom-chromium-ai+0.0.17.patch`](patches/@types+dom-chromium-ai+0.0.17.patch) closes the gap. |
 
-The patch is applied by `patch-package` on `postinstall`. `skipLibCheck` is
+The patch is applied by `patch-package` on `prepare`, which runs for this repo
+and never for anyone installing the published package. `skipLibCheck` is
 deliberately **off** in `tsconfig.json`: these declarations are the only
 third-party ones in the project, and type-checking them is how a patch that
 stops applying cleanly gets caught.
 
 ## The contract
 
-[`src/types`](src/types) is six files and no runtime dependencies. Each holds one
+[`src/types`](src/types) is seven files and no runtime dependencies. Each holds one
 layer, and a fact lives on the type it is about: what a field means sits on the
 type rather than at every place it is read, so go-to-definition walks the
 reasoning instead of finding it restated.
@@ -118,6 +171,7 @@ reasoning instead of finding it restated.
 | [`failures.ts`](src/types/failures.ts)       | `AiFailure`, the mapping `failureFrom`, and `AiError`.           |
 | [`session.ts`](src/types/session.ts)         | `AiSession`, `ModelAccess`, `DownloadMonitor`, the option types. |
 | [`provider.ts`](src/types/provider.ts)       | `ProviderName`, `AiProvider`.                                    |
+| [`backend.ts`](src/types/backend.ts)         | `ModelBackend`, `Model` — the four answers a provider supplies.  |
 
 Four ideas carry the rest:
 
@@ -164,7 +218,7 @@ It covers ten of them:
 5. A system turn cannot be smuggled into the history
 6. A schema is not just any object
 7. Availability is asked for a specific request
-8. The provider list is closed, and switches over it stay exhaustive
+8. The provider list is the app's, and switches over it stay exhaustive
 9. The stream stays a stream
 10. The monitor is the platform's, and ours passes for it
 
