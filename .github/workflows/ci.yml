@@ -76,6 +76,51 @@ jobs:
       # `--with-deps` pulls the system libraries the runner image lacks.
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e
+
+  # The same suites again, with a daemon answering. The `check` job runs them
+  # with none, and the ollama specs skip there — this job is what makes that
+  # skip a fact about the environment rather than a hole.
+  ollama:
+    if: ${{ !startsWith(github.head_ref, 'release-please--') }}
+    runs-on: ubuntu-latest
+    env:
+      # 708MB, and the smallest thing that still answers in words.
+      OLLAMA_MODEL: granite4:350m
+      # The daemon's own default is a system path the cache below cannot reach.
+      OLLAMA_MODELS: /home/runner/.ollama/models
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm ci --prefix demo
+      - run: npx playwright install --with-deps chromium
+
+      - run: curl -fsSL https://ollama.com/install.sh | sh
+      # Weights, not the binary: the pull below is a no-op on a hit and the
+      # whole download on a miss.
+      - uses: actions/cache@v4
+        with:
+          path: /home/runner/.ollama/models
+          key: ollama-models-granite4-350m
+
+      - name: Serve, and pull if the cache missed
+        run: |
+          # The installer starts its own under systemd, with models somewhere
+          # this job does not cache — ours replaces it rather than fights it.
+          sudo systemctl stop ollama || true
+          nohup ollama serve > /tmp/ollama.log 2>&1 &
+          for _ in $(seq 1 30); do
+            curl -sf http://127.0.0.1:11434/api/tags > /dev/null && break
+            sleep 1
+          done
+          ollama pull "$OLLAMA_MODEL"
+
+      - run: npm test
+      - if: ${{ !cancelled() }}
+        run: npm run test:e2e
       - if: failure()
         uses: actions/upload-artifact@v4
         with:

@@ -22,12 +22,16 @@ npm run dev
 | The progress line on first open  | the `needs-download` branch and its monitor                   |
 | Reload, and it is still there    | `session.history()` out, `open({ history })` back in          |
 | A second tab staying in step     | the `storage` event, not a library feature                    |
+| The `ollama` entry answering     | a real model, through the same session as the three mocks     |
 
-The picker holds three entries of one registry. They are all the mock with
-different settings, because the mock is the only backend there is yet. Swapping
-one for Ollama or the browser's built-in model is an edit to
-[`src/providers.ts`](src/providers.ts) and to nothing else — that is the claim
-the rest of this app exists to make honest.
+The picker holds four entries of one registry. Three are the mock with
+different settings; the fourth is Ollama with a real model on it, and adding it
+was one line in [`src/providers.ts`](src/providers.ts) and nothing anywhere
+else. That is the claim the rest of this app exists to make honest.
+
+The Ollama entry wants a daemon on `127.0.0.1:11434` holding `granite4:350m`.
+Without one it answers `unavailable` and the chip says so, which is the branch
+the three mocks cannot stage.
 
 ## Where the interesting parts are
 

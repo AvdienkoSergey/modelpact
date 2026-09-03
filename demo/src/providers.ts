@@ -2,13 +2,17 @@
  * The app's list of backends. One object, and its keys are the app's provider
  * names: the switch in `LABELS` below stays exhaustive because of it.
  *
- * All three are the same mock with different settings, because the mock is the
- * only backend that exists yet. Swapping one of them for Ollama or the
- * browser's built-in model is an edit to this file and to nothing else, which
- * is the claim the rest of the demo is here to make honest.
+ * The first three are the same mock with different settings; the fourth is a
+ * real model on a daemon. Nothing outside this file knows the difference, which
+ * is the claim the rest of the demo is here to make honest — the picker changes
+ * the backend and every other line stays as it was.
  */
 
-import { defineProviders, makeMockProvider } from "modelpact";
+import {
+  defineProviders,
+  makeMockProvider,
+  makeOllamaProvider,
+} from "modelpact";
 
 /** Long enough to watch arrive, and to reach the stop button before it ends. */
 const reply = (input: string): readonly string[] => {
@@ -35,6 +39,10 @@ export const PROVIDERS = defineProviders({
       0, 0.06, 0.14, 0.23, 0.35, 0.44, 0.58, 0.7, 0.79, 0.88, 0.95, 1,
     ],
   }),
+  // A daemon on this machine, and the only entry with a model behind it. Absent
+  // one, `access` answers `unavailable` and the chip says so — which is the
+  // branch the other three cannot stage.
+  ollama: makeOllamaProvider({ model: "granite4:350m" }),
 });
 
 export type ProviderName = keyof typeof PROVIDERS;
@@ -49,5 +57,7 @@ export function labelOf(name: ProviderName): string {
       return "Mock · narrow window";
     case "mock-download":
       return "Mock · downloads first";
+    case "ollama":
+      return "Ollama · granite4:350m";
   }
 }
