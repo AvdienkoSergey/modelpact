@@ -44,11 +44,29 @@ the rest of this app exists to make honest.
   build that stops here when a new one is added rather than showing someone a
   tag.
 
+## Tests
+
+[`e2e/demo-e2e.spec.ts`](../e2e/demo-e2e.spec.ts) drives this app in Chromium,
+and it is the repo's whole browser suite:
+
+```sh
+npm run test:e2e     # from the repo root; the demo server starts itself
+```
+
+Six specs, one per row of the table above, plus a fixture that fails any of
+them on an uncaught error or an `error` in the console. They assert the
+contract, not the UI — a stream that has a shorter prefix partway, a stopped
+turn absent from the record with the session still usable, an overflow that
+fires once and stays once. The vitest suites check the same promises against
+the mock directly; these check they survive a bundler, React, and a person
+clicking.
+
 ## Notes
 
 `modelpact` here resolves to `../src`, not to the built package, so an edit to
 the library reloads the page. What the published package looks like from
 outside is checked separately, against a packed tarball.
 
-This directory is outside the repo's eslint and CI: it has its own tsconfig and
-its own `npm run typecheck`.
+This directory is outside the repo's eslint: it has its own tsconfig, and
+`npm run demo:check` from the root is what type-checks it. CI installs its
+dependencies for the browser suite.
