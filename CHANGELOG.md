@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.0.4](https://github.com/AvdienkoSergey/modelpact/compare/v2.0.3...v2.0.4) (2026-09-03)
+
+
+### Documentation
+
+* the community files GitHub looks for, and one of them earns its keep ([3e41717](https://github.com/AvdienkoSergey/modelpact/commit/3e41717b441c000c462d6c763e485ef9a84d3334))
+
+
+### CI
+
+* templates that ask the right questions, updates that arrive by themselves ([b0d2395](https://github.com/AvdienkoSergey/modelpact/commit/b0d23958b87030d2007adb8b9cba80f4765807b9))
+
 ## [2.0.3](https://github.com/AvdienkoSergey/modelpact/compare/v2.0.2...v2.0.3) (2026-09-03)
 
 
