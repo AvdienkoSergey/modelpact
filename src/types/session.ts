@@ -83,9 +83,10 @@ export interface AiSession extends EventTarget {
    * turn. An aborted or cancelled turn adds nothing, and nothing is ever
    * dropped — `src/helpers/transcript.ts` holds both rules.
    *
-   * Hand it back to `open` and the conversation continues where it was, which
-   * is how it survives a reload. Each call is a snapshot: later turns do not
-   * write into an array already handed out.
+   * It lives as long as the session does, which is one tab. Storing it is the
+   * app's, and handing it back to `open` continues the conversation where it
+   * was — that round trip is how a reload is survived, not this array. Each
+   * call is a snapshot: later turns do not write into one already handed out.
    */
   readonly history: () => readonly AiMessage[];
   /**

@@ -38,10 +38,11 @@ there — the method doesn't exist on that branch. You cannot read an answer
 without handling the failure — the field isn't in the type. TypeScript catches
 it before your users do.
 
-**A conversation that survives a reload.** The session keeps the record: what
-you handed it, then every completed turn. Read it, store it, hand it back to
-`open` — same conversation. An aborted turn never gets in, so what you store is
-what the model actually saw.
+**A conversation you can carry across a reload.** The session keeps the record:
+what you handed it, then every completed turn. It lives in memory for one tab,
+so storing it is yours — `localStorage`, IndexedDB, your server. Read it, store
+it, hand it back to `open`, and the conversation continues where it was. An
+aborted turn never gets in, so what you store is what the model actually saw.
 
 **Download progress for free.** The first time a browser model is used, hundreds
 of megabytes move. You get a progress event; your users get a bar instead of a
