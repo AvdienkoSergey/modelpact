@@ -12,6 +12,7 @@ import {
   defineProviders,
   makeMockProvider,
   makeOllamaProvider,
+  makePromptApiProvider,
 } from "modelpact";
 
 /** Long enough to watch arrive, and to reach the stop button before it ends. */
@@ -43,6 +44,10 @@ export const PROVIDERS = defineProviders({
   // one, `access` answers `unavailable` and the chip says so — which is the
   // branch the other three cannot stage.
   ollama: makeOllamaProvider({ model: "granite4:350m" }),
+  // Chrome's own, which needs no configuring and no daemon. On a browser
+  // without it `access` answers `unavailable`; on one with it undownloaded,
+  // the weights are gigabytes, which is what the consent button exists for.
+  "prompt-api": makePromptApiProvider(),
 });
 
 export type ProviderName = keyof typeof PROVIDERS;
@@ -59,5 +64,7 @@ export function labelOf(name: ProviderName): string {
       return "Mock · downloads first";
     case "ollama":
       return "Ollama · granite4:350m";
+    case "prompt-api":
+      return "Chrome · built-in model";
   }
 }

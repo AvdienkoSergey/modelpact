@@ -23,7 +23,8 @@ modelpact is one dialect for all of them.
 named. Everything after it is identical.
 
 ```ts
-const provider = makeOllamaProvider({ model: "granite4:350m" }); // a daemon
+const provider = makePromptApiProvider(); // Chrome's built-in model
+const provider = makeOllamaProvider({ model: "granite4:350m" }); // …or a daemon
 const provider = makeMockProvider(); // …or nothing at all, in tests
 ```
 
@@ -100,9 +101,9 @@ Swap `makeMockProvider` for any other provider and nothing below it changes.
 That is the whole point of the line.
 
 > **Early.** In: the contract, its type-level test, the lifecycle, the
-> conformance suite, the mock and Ollama. Not yet: Chrome's built-in model.
-> Everything a backend needs is exported, so an adapter written outside this
-> package is held to exactly the same standard.
+> conformance suite, and three backends — the mock, Ollama, and Chrome's
+> built-in model. Everything a backend needs is exported, so an adapter written
+> outside this package is held to exactly the same standard.
 
 ### Bring your own backend
 

@@ -23,15 +23,21 @@ npm run dev
 | Reload, and it is still there    | `session.history()` out, `open({ history })` back in          |
 | A second tab staying in step     | the `storage` event, not a library feature                    |
 | The `ollama` entry answering     | a real model, through the same session as the three mocks     |
+| "Download them" before a fetch   | the `needs-download` branch, not opened unasked               |
+| The `prompt-api` entry           | Chrome's own model, mapped by the same four answers           |
 
-The picker holds four entries of one registry. Three are the mock with
-different settings; the fourth is Ollama with a real model on it, and adding it
-was one line in [`src/providers.ts`](src/providers.ts) and nothing anywhere
-else. That is the claim the rest of this app exists to make honest.
+The picker holds five entries of one registry. Three are the mock with
+different settings; the other two are Ollama and Chrome's built-in model, and
+each was one line in [`src/providers.ts`](src/providers.ts) and nothing
+anywhere else. That is the claim the rest of this app exists to make honest.
 
 The Ollama entry wants a daemon on `127.0.0.1:11434` holding `granite4:350m`.
 Without one it answers `unavailable` and the chip says so, which is the branch
 the three mocks cannot stage.
+
+The Chrome entry needs no configuring. What it usually lands on is
+`needs-download`, and that branch is not opened for you: Gemini Nano is
+gigabytes, and a dropdown is not consent. The button is.
 
 ## Where the interesting parts are
 

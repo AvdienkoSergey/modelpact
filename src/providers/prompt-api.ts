@@ -1,0 +1,260 @@
+/**
+ * Chrome's built-in model, through the Prompt API.
+ *
+ * The one backend that keeps the conversation itself: `LanguageModel` is a
+ * session object, `prompt()` appends to it, and `request.history` is therefore
+ * read by nobody here. Two more things it owns that the others do not — it
+ * fires its own `contextoverflow`, which is forwarded rather than re-derived,
+ * and it reports usage against a window it decides.
+ *
+ * It lives in a page and nowhere else. In node the global is missing, and
+ * `access` answers `unavailable` with `unsupported` rather than throwing.
+ *
+ * The declarations are `@types/dom-chromium-ai`, patched under `patches/` to
+ * close the gap between the IDL and the spec; `src/types.test-d.ts` is where
+ * the two meet.
+ */
+
+import { failureFrom, type AiFailure } from "../types/failures.js";
+import {
+  err,
+  fraction,
+  ok,
+  tokens,
+  type Result,
+} from "../types/foundations.js";
+import type { ModelRequest } from "../types/messages.js";
+import type {
+  Availability,
+  ConnectOptions,
+  GenerateRequest,
+  Model,
+  ModelBackend,
+} from "../types/backend.js";
+import type { AiProvider } from "../types/provider.js";
+import type { SessionOptions } from "../types/session.js";
+import { contextUsage, type ContextUsage } from "../types/usage.js";
+import { createProvider } from "./create.js";
+
+export interface PromptApiConfig {
+  /**
+   * The class to drive. Defaults to the page's own; passing one is for a test
+   * or a polyfill, since there is no second implementation to point at.
+   */
+  readonly languageModel?: typeof LanguageModel;
+}
+
+/** `typeof` and not a bare read: the global is absent outside a page, and naming it there throws. */
+const apiOf = (config: PromptApiConfig): typeof LanguageModel | null => {
+  if (config.languageModel !== undefined) return config.languageModel;
+  return typeof LanguageModel === "undefined" ? null : LanguageModel;
+};
+
+const expectationsOf = (
+  asked: ModelRequest["inputs"],
+): LanguageModelExpected[] | undefined => {
+  if (asked === undefined || asked.length === 0) return undefined;
+  return asked.map((one) => ({
+    type: one.type,
+    ...(one.languages === undefined ? {} : { languages: [...one.languages] }),
+  }));
+};
+
+const coreOptionsOf = (
+  request: ModelRequest,
+): LanguageModelCreateCoreOptions => {
+  const inputs = expectationsOf(request.inputs);
+  const outputs = expectationsOf(request.outputs);
+  return {
+    ...(inputs === undefined ? {} : { expectedInputs: inputs }),
+    ...(outputs === undefined ? {} : { expectedOutputs: outputs }),
+  };
+};
+
+/** The spec's four strings, read off the declaration so a fifth cannot be missed. */
+type SpecAvailability = Awaited<ReturnType<typeof LanguageModel.availability>>;
+
+/**
+ * The four the spec has, against the three the contract has. `downloading` and
+ * `downloadable` are one branch here and differ only in `started`, which is the
+ * question a caller actually has: is someone already fetching this.
+ */
+const availabilityOf = (said: SpecAvailability): Availability => {
+  switch (said) {
+    case "available":
+      return { kind: "ready" };
+    case "downloadable":
+      return { kind: "needs-download", started: false };
+    case "downloading":
+      return { kind: "needs-download", started: true };
+    case "unavailable":
+      // Empty lists: the spec says no for the whole request without naming a
+      // part, and inventing one would be worse than saying nothing.
+      return {
+        kind: "unavailable",
+        reason: { kind: "unsupported-config", languages: [] },
+      };
+  }
+};
+
+const getAvailability = async (
+  config: PromptApiConfig,
+  request: ModelRequest,
+): Promise<Availability> => {
+  const api = apiOf(config);
+  if (api === null)
+    return { kind: "unavailable", reason: { kind: "unsupported" } };
+  try {
+    const said = await api.availability(coreOptionsOf(request));
+    return availabilityOf(said);
+  } catch (error) {
+    // `NotAllowedError` for the permissions policy, `InvalidStateError` for a
+    // document that is not fully active: both are refusals, not crashes.
+    return { kind: "unavailable", reason: failureFrom(error) };
+  }
+};
+
+/** System first or not at all, which is what the patched tuple type says too. */
+const initialPromptsOf = (
+  session: SessionOptions,
+): LanguageModelCreateOptions["initialPrompts"] => {
+  const said: LanguageModelMessage[] = (session.history ?? []).map(
+    (message) => ({ role: message.role, content: message.content }),
+  );
+  if (session.system === undefined) return said.length === 0 ? undefined : said;
+  return [{ role: "system", content: session.system }, ...said];
+};
+
+const promptOptionsOf = (
+  request: GenerateRequest,
+): LanguageModelPromptOptions =>
+  request.schema === undefined
+    ? { signal: request.signal }
+    : { signal: request.signal, responseConstraint: request.schema };
+
+/**
+ * `contextUsage` and `contextWindow` replaced `inputUsage` and `inputQuota`,
+ * and a browser in the field may have either pair. Read as unknown because the
+ * declarations promise the new names on a version that has only the old.
+ */
+const readUsage = (session: LanguageModel): ContextUsage => {
+  const held = session as unknown as Record<string, unknown>;
+  const used = numberAt(held, "contextUsage", "inputUsage");
+  const window = numberAt(held, "contextWindow", "inputQuota");
+  if (used === null || window === null) return { kind: "unknown" };
+  const counted = tokens(used);
+  return counted === null ? { kind: "unknown" } : contextUsage(counted, window);
+};
+
+const numberAt = (
+  held: Record<string, unknown>,
+  current: string,
+  older: string,
+): number | null => {
+  const value = held[current] ?? held[older];
+  return typeof value === "number" ? value : null;
+};
+
+class PromptApiModel implements Model {
+  readonly #session: LanguageModel;
+
+  constructor(session: LanguageModel) {
+    this.#session = session;
+  }
+
+  readonly generate = (
+    input: string,
+    request: GenerateRequest,
+  ): Promise<Result<ReadableStream<string>, AiFailure>> => {
+    try {
+      const deltas = this.#session.promptStreaming(
+        input,
+        promptOptionsOf(request),
+      );
+      return Promise.resolve(ok(deltas));
+    } catch (error) {
+      return Promise.resolve(err(this.#refine(error)));
+    }
+  };
+
+  readonly generateWhole = async (
+    input: string,
+    request: GenerateRequest,
+  ): Promise<Result<string, AiFailure>> => {
+    try {
+      const said = await this.#session.prompt(input, promptOptionsOf(request));
+      return ok(said);
+    } catch (error) {
+      return err(this.#refine(error));
+    }
+  };
+
+  readonly usage = (): ContextUsage => readUsage(this.#session);
+
+  readonly dispose = (): void => {
+    this.#session.destroy();
+  };
+
+  /**
+   * `QuotaExceededError` carries no measurement, and the generic mapping says
+   * so; holding the session is what lets this one attach the reading.
+   */
+  #refine(error: unknown): AiFailure {
+    const failure = failureFrom(error);
+    return failure.kind === "context-overflow"
+      ? { ...failure, usage: this.usage() }
+      : failure;
+  }
+}
+
+const connectPromptApi = async (
+  config: PromptApiConfig,
+  options: ConnectOptions,
+): Promise<Result<Model, AiFailure>> => {
+  const api = apiOf(config);
+  if (api === null) return err({ kind: "unsupported" });
+
+  const initialPrompts = initialPromptsOf(options.session);
+  try {
+    const session = await api.create({
+      ...coreOptionsOf(options.request),
+      ...(initialPrompts === undefined ? {} : { initialPrompts }),
+      ...(options.session.signal === undefined
+        ? {}
+        : { signal: options.session.signal }),
+      // Translated rather than forwarded, though the browser's monitor would
+      // satisfy `DownloadMonitor` as it stands: going through the lifecycle's
+      // own is what applies the never-decreasing rule to every backend alike.
+      monitor: (monitor) => {
+        monitor.ondownloadprogress = (event) => {
+          const at = fraction(
+            event.total === 0 ? 0 : event.loaded / event.total,
+          );
+          if (at !== null) options.reportProgress(at);
+        };
+      },
+    });
+    // Forwarded, not re-derived: by the time a listener reads the counters the
+    // dropped turns are gone, and `used` can be back under the window.
+    session.oncontextoverflow = () => {
+      options.reportOverflow();
+    };
+    return ok(new PromptApiModel(session));
+  } catch (error) {
+    return err(failureFrom(error));
+  }
+};
+
+export function makePromptApiProvider(
+  config: PromptApiConfig = {},
+): AiProvider {
+  const backend: ModelBackend = {
+    name: "prompt-api",
+    // Text only, because that is all `AiMessage` carries. The model takes more,
+    // and asking for it would promise a message this contract cannot build.
+    modalities: ["text"],
+    availability: (request) => getAvailability(config, request),
+    connect: (options) => connectPromptApi(config, options),
+  };
+  return createProvider(backend);
+}

@@ -149,15 +149,17 @@ test("a window too narrow for the conversation says so once", async ({
   await expect(notice).toHaveCount(1);
 });
 
-test("the download branch reports progress and then opens", async ({
-  page,
-}) => {
-  // Armed before the switch: the branch is short-lived by design, and a waiter
-  // started afterwards is a race with it.
-  const fetching = expect(chip(page)).toHaveText("fetching weights");
+test("weights are not fetched until someone says to", async ({ page }) => {
   await page.selectOption("select", "mock-download");
-  await fetching;
+  await expect(chip(page)).toHaveText("fetching weights");
 
+  // Nothing has been downloaded and nothing can be asked: the branch stops
+  // here on purpose, because on a real backend this is gigabytes.
+  const consent = page.getByRole("button", { name: "Download them" });
+  await expect(consent).toBeVisible();
+  await expect(sendButton(page)).toBeDisabled();
+
+  await consent.click();
   await opened(page);
   await expect(chip(page)).toHaveText("ready");
   await ask(page, "Downloaded, then asked");
@@ -182,4 +184,34 @@ test("the ollama entry reaches a daemon and answers", async ({ page }) => {
   await expect(sendButton(page)).toBeVisible({ timeout: 60_000 });
   await expect(messages(page)).toHaveCount(2);
   await expect(messages(page).nth(1)).not.toBeEmpty();
+});
+
+/**
+ * Chrome's own, against the platform rather than against a written stand-in.
+ *
+ * Nothing is downloaded here: the model is gigabytes, and the branch this
+ * lands on is exactly the one that stops and asks. What it proves is that the
+ * real `LanguageModel.availability()` was called and its answer came back as
+ * one of the three the contract has — a mapping a node run cannot exercise,
+ * because the global is missing there.
+ */
+test("the chrome entry maps the platform's own answer", async ({ page }) => {
+  const present = await page.evaluate(
+    () => typeof LanguageModel !== "undefined",
+  );
+  test.skip(!present, "this browser has no Prompt API");
+
+  await page.selectOption("select", "prompt-api");
+  await expect(chip(page)).toHaveText(
+    /^(ready|fetching weights|unavailable)$/,
+    { timeout: 15_000 },
+  );
+
+  // Whichever it is, the demo is in a state and not in a crash.
+  const said = await chip(page).innerText();
+  if (said === "fetching weights") {
+    await expect(
+      page.getByRole("button", { name: "Download them" }),
+    ).toBeVisible();
+  }
 });

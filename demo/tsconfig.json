@@ -13,7 +13,9 @@
     "noEmit": true,
     "isolatedModules": true,
     "verbatimModuleSyntax": true,
-    "types": ["vite/client"],
+    // `dom-chromium-ai` because the aliased library source names the platform's
+    // `LanguageModel`; the copy resolved is the root's, patches and all.
+    "types": ["vite/client", "dom-chromium-ai"],
     // The same alias vite resolves, so the editor and the bundler agree.
     "paths": { "modelpact": ["../src/index.ts"] }
   },
