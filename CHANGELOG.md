@@ -1,5 +1,33 @@
 # Changelog
 
+## [1.11.0](https://github.com/AvdienkoSergey/modelpact/compare/v1.10.1...v1.11.0) (2026-09-03)
+
+
+### Features
+
+* **external:** an agent, on the storey where one belongs ([03c13de](https://github.com/AvdienkoSergey/modelpact/commit/03c13dec1f1b50423b3a8160be93a2f006dec9d2))
+* **external:** two models under one session, from the terminal you already pay for ([38f6ca9](https://github.com/AvdienkoSergey/modelpact/commit/38f6ca949336516fd7dedfba0020ea7b491f61ec))
+
+
+### Bug Fixes
+
+* **external:** a composed provider is reopened on the router's history every turn ([27773e3](https://github.com/AvdienkoSergey/modelpact/commit/27773e3c5fc52c27b038e56072f3b2a1a003d4dd))
+* **external:** a pull must make progress before it returns ([25bd7f5](https://github.com/AvdienkoSergey/modelpact/commit/25bd7f5b78d53d09ad51acd3618da711a17c1ef3))
+* **external:** notice a loop, and say which call it was ([8844983](https://github.com/AvdienkoSergey/modelpact/commit/8844983c6a827f8fe10c34932e40b1ed6775f6ac))
+* **external:** notice a loop, and say which call it was ([73b47ba](https://github.com/AvdienkoSergey/modelpact/commit/73b47ba19f6807d6d21565d3fab3f5a25871166d))
+* **external:** the guarded tool really writes, because a gate over nothing teaches nothing ([2a37eb9](https://github.com/AvdienkoSergey/modelpact/commit/2a37eb95d2fd00e3d9a075c6990571bbad194fc4))
+* **external:** the route tag on its own line, not glued to the prompt ([3824a58](https://github.com/AvdienkoSergey/modelpact/commit/3824a584b76888a29d6f099b479cbd1aa9caa89c))
+
+
+### Refactoring
+
+* **external:** move the orchestrator a storey up, where nothing has to be forced ([23e1830](https://github.com/AvdienkoSergey/modelpact/commit/23e1830a5bea31980f4e9422a17fe85963f01e56))
+
+
+### Documentation
+
+* **external:** the live suite covers both branches, not one ([3fa77c1](https://github.com/AvdienkoSergey/modelpact/commit/3fa77c1512d10631ec1b8431c5a9e82b4c68dd3b))
+
 ## [1.10.1](https://github.com/AvdienkoSergey/modelpact/compare/v1.10.0...v1.10.1) (2026-09-03)
 
 
