@@ -26,7 +26,7 @@ export interface ConnectOptions {
   readonly request: ModelRequest;
   readonly session: SessionOptions;
   /** Already subscribed to when `connect` runs; a no-op on the `ready` branch. */
-  readonly reportProgress: (loaded: Fraction) => void;
+  readonly reportProgress: (progress: Fraction) => void;
   /** For a backend that hears its own overflow event. Idempotent. */
   readonly reportOverflow: () => void;
 }
@@ -44,12 +44,12 @@ export interface GenerateRequest {
 }
 
 /** One open connection to a model. Busy, abort and usage are checked around these calls, not inside them. */
-export interface Model {
-  readonly generate: (
+export interface ModelConnection {
+  readonly generateStream: (
     input: string,
     request: GenerateRequest,
   ) => Promise<Result<ReadableStream<string>, AiFailure>>;
-  /** Absent, `prompt` drains `generate`; present for a backend with a cheaper whole-answer call. */
+  /** Absent, `prompt` drains `generateStream`; present for a backend with a cheaper whole-answer call. */
   readonly generateWhole?: (
     input: string,
     request: GenerateRequest,
@@ -69,5 +69,5 @@ export interface ModelBackend {
   /** Downloads if it must, reporting through `reportProgress`, then connects. */
   readonly connect: (
     options: ConnectOptions,
-  ) => Promise<Result<Model, AiFailure>>;
+  ) => Promise<Result<ModelConnection, AiFailure>>;
 }

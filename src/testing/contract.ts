@@ -35,7 +35,7 @@ import type {
  * those tests skip. Skipping shows in the run output; silently passing would
  * not.
  */
-export type Scenario =
+export type ContractScenario =
   | "ready"
   | "unavailable"
   | "needs-download"
@@ -48,7 +48,7 @@ export type Scenario =
   | "tiny-window";
 
 export type ProviderFactory = (
-  scenario: Scenario,
+  scenario: ContractScenario,
 ) => AiProvider | null | Promise<AiProvider | null>;
 
 /**
@@ -125,7 +125,7 @@ export function describeContract(
    */
   const stageSession = async (
     ctx: TestContext,
-    scenario: Scenario,
+    scenario: ContractScenario,
   ): Promise<AiSession | null> => {
     const provider = await makeProvider(scenario);
     if (provider === null) {

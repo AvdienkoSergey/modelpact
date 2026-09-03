@@ -106,7 +106,7 @@ const makeTagsResponse = (...models: string[]): Response =>
  * Both shapes the daemon has, chosen the way it chooses: `stream: true` is
  * NDJSON ending on the line that carries the counts, `stream: false` is one
  * object. A stub that answered the same either way would hide which of
- * `generate` and `generateWhole` the lifecycle took.
+ * `generateStream` and `generateWhole` the lifecycle took.
  */
 const makeChatResponse =
   (...deltas: string[]) =>

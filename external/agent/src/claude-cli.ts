@@ -33,7 +33,7 @@ import {
   type ConnectOptions,
   type ContextUsage,
   type GenerateRequest,
-  type Model,
+  type ModelConnection,
   type ModelBackend,
   type Result,
 } from "modelpact";
@@ -154,7 +154,7 @@ const renderPrompt = (history: readonly AiMessage[], input: string): string => {
 const CONTINUE =
   "When a <conversation> block is present, it is the conversation so far; reply to the final user turn only, without restating it.";
 
-class ClaudeCliModel implements Model {
+class ClaudeCliModel implements ModelConnection {
   readonly #config: ClaudeCliConfig;
   readonly #system: string | undefined;
   #usedTokens = 0;
@@ -164,7 +164,7 @@ class ClaudeCliModel implements Model {
     this.#system = options.session.system;
   }
 
-  readonly generate = (
+  readonly generateStream = (
     input: string,
     request: GenerateRequest,
   ): Promise<Result<ReadableStream<string>, AiFailure>> => {

@@ -9,6 +9,6 @@
 export {
   CONTRACT_SCHEMA,
   describeContract,
+  type ContractScenario,
   type ProviderFactory,
-  type Scenario,
 } from "./contract.js";

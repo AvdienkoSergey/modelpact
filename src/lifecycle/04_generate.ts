@@ -10,9 +10,13 @@
 import { abortFailure } from "../helpers/abort.js";
 import type { GeneratingCall, RunningTurn } from "../helpers/lifetime.js";
 import { err, ok, type Result } from "../types/foundations.js";
-import { AiError, failureFrom, type AiFailure } from "../types/failures.js";
+import {
+  AiError,
+  failureFromError,
+  type AiFailure,
+} from "../types/failures.js";
 import type { GenerateOptions } from "../types/session.js";
-import type { GenerateRequest, Model } from "../types/backend.js";
+import type { GenerateRequest, ModelConnection } from "../types/backend.js";
 import type { SessionState } from "./03_open.js";
 
 interface StartedTurn {
@@ -53,10 +57,10 @@ const toGenerateRequest = (
 };
 
 const toFailure = (error: unknown): AiFailure =>
-  error instanceof AiError ? error.failure : failureFrom(error);
+  error instanceof AiError ? error.failure : failureFromError(error);
 
 const toAiError = (error: unknown): AiError =>
-  error instanceof AiError ? error : new AiError(failureFrom(error));
+  error instanceof AiError ? error : new AiError(failureFromError(error));
 
 /** Every refusal a generating call owes is `begin`'s to make; past it, the session is held. */
 const startTurn = (
@@ -79,7 +83,7 @@ const releaseReader = (reader: ReadableStreamDefaultReader<string>): void => {
 /**
  * The backend's stream under the lifecycle's rules. An abort errors it with an
  * `AiError` — a reader has nowhere to put a Result — and so does anything the
- * source throws, mapped through `failureFrom`.
+ * source throws, mapped through `failureFromError`.
  */
 const guardStream = (
   sourceStream: ReadableStream<string>,
@@ -114,12 +118,12 @@ const guardStream = (
 };
 
 const callGenerate = async (
-  model: Model,
+  model: ModelConnection,
   input: string,
   request: GenerateRequest,
 ): Promise<Result<ReadableStream<string>, AiFailure>> => {
   try {
-    return await model.generate(input, request);
+    return await model.generateStream(input, request);
   } catch (error) {
     return err(toFailure(error));
   }
@@ -171,7 +175,7 @@ const drainStream = async (
 
 const promptWhole = async (
   state: SessionState,
-  generateWhole: NonNullable<Model["generateWhole"]>,
+  generateWhole: NonNullable<ModelConnection["generateWhole"]>,
   input: string,
   options?: GenerateOptions,
 ): Promise<Result<string, AiFailure>> => {

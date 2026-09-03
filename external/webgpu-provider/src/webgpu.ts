@@ -16,7 +16,7 @@ import {
   contextUsage,
   createProvider,
   err,
-  failureFrom,
+  failureFromError,
   fraction,
   ok,
   tokens,
@@ -26,7 +26,7 @@ import {
   type ConnectOptions,
   type ContextUsage,
   type GenerateRequest,
-  type Model,
+  type ModelConnection,
   type ModelBackend,
   type Result,
 } from "modelpact";
@@ -133,7 +133,7 @@ const getAvailability = async (config: WebGpuConfig): Promise<Availability> => {
 const progressOf = (report: InitProgressReport): number =>
   typeof report.progress === "number" ? report.progress : 0;
 
-class WebGpuModel implements Model {
+class WebGpuModel implements ModelConnection {
   readonly #engine: WebGpuEngine;
   readonly #model: string;
   readonly #contextWindow: number;
@@ -151,7 +151,7 @@ class WebGpuModel implements Model {
     this.#system = options.session.system;
   }
 
-  readonly generate = async (
+  readonly generateStream = async (
     input: string,
     request: GenerateRequest,
   ): Promise<Result<ReadableStream<string>, AiFailure>> => {
@@ -172,7 +172,7 @@ class WebGpuModel implements Model {
       });
       return ok(this.#deltasOf(chunks));
     } catch (error) {
-      return err(failureFrom(error));
+      return err(failureFromError(error));
     }
   };
 
@@ -276,7 +276,7 @@ const loadEngine = async (
 const connectEngine = async (
   config: WebGpuConfig,
   options: ConnectOptions,
-): Promise<Result<Model, AiFailure>> => {
+): Promise<Result<ModelConnection, AiFailure>> => {
   const report = (loaded: number): void => {
     const at = fraction(loaded);
     if (at !== null) options.reportProgress(at);
@@ -288,7 +288,7 @@ const connectEngine = async (
         : await config.engine(report);
     return ok(new WebGpuModel(engine, config, options));
   } catch (error) {
-    return err(failureFrom(error));
+    return err(failureFromError(error));
   }
 };
 

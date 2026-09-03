@@ -120,7 +120,7 @@ describe("webgpu from outside", () => {
 
     const answer = await opened.value.prompt("hello");
     expect(answer.ok).toBe(false);
-    // `failureFrom` is exported, so a backend outside the package maps its
+    // `failureFromError` is exported, so a backend outside the package maps its
     // exceptions with the same table the ones inside it use.
     if (!answer.ok) expect(typeof answer.error.kind).toBe("string");
     opened.value.close();

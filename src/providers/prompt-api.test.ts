@@ -49,7 +49,7 @@ const countWords = (text: string): number =>
 
 /**
  * A stand-in for the platform's class: the same statics, the same session
- * shape, the same exceptions by `name`, which is all `failureFrom` reads.
+ * shape, the same exceptions by `name`, which is all `failureFromError` reads.
  */
 function makeFakeLanguageModel(
   options: FakeOptions = {},

@@ -27,7 +27,7 @@ import type {
   Availability,
   ConnectOptions,
   GenerateRequest,
-  Model,
+  ModelConnection,
   ModelBackend,
 } from "../types/backend.js";
 import type { AiProvider } from "../types/provider.js";
@@ -227,7 +227,7 @@ interface ChatBody {
   readonly format?: Record<string, unknown>;
 }
 
-class OllamaModel implements Model {
+class OllamaModel implements ModelConnection {
   readonly #endpoint: Endpoint;
   readonly #model: string;
   readonly #contextWindow: number;
@@ -242,7 +242,7 @@ class OllamaModel implements Model {
     this.#system = options.session.system;
   }
 
-  readonly generate = async (
+  readonly generateStream = async (
     input: string,
     request: GenerateRequest,
   ): Promise<Result<ReadableStream<string>, AiFailure>> => {
@@ -350,7 +350,7 @@ const ZERO_TOKENS = tokens(0) as NonNullable<ReturnType<typeof tokens>>;
 const connectOllama = async (
   config: OllamaConfig,
   options: ConnectOptions,
-): Promise<Result<Model, AiFailure>> => {
+): Promise<Result<ModelConnection, AiFailure>> => {
   const endpoint = toEndpoint(config);
   let downloadedModels: readonly string[];
   try {

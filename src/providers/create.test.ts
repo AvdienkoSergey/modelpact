@@ -10,7 +10,7 @@ import { ok } from "../types/foundations.js";
 import { AiError } from "../types/failures.js";
 import type { AiMessage } from "../types/messages.js";
 import type { AiSession, SessionOptions } from "../types/session.js";
-import type { Model } from "../types/backend.js";
+import type { ModelConnection } from "../types/backend.js";
 import { createProvider } from "./create.js";
 
 const makeStream = (...chunks: string[]): ReadableStream<string> =>
@@ -30,14 +30,16 @@ const failingStream = (): ReadableStream<string> =>
     },
   });
 
-const makeModel = (generate: Model["generate"]): Model => ({
-  generate,
+const makeModel = (
+  generateStream: ModelConnection["generateStream"],
+): ModelConnection => ({
+  generateStream,
   usage: () => ({ kind: "unknown" }),
   dispose: () => undefined,
 });
 
 const openSessionWith = async (
-  model: Model,
+  model: ModelConnection,
   options?: SessionOptions,
 ): Promise<AiSession> => {
   const provider = createProvider({
@@ -123,7 +125,7 @@ describe("lifecycle", () => {
 
   test("the whole-answer call is preferred by prompt and skipped by promptStream", async () => {
     let streamed = 0;
-    const model: Model = {
+    const model: ModelConnection = {
       ...makeModel(() => {
         streamed += 1;
         return Promise.resolve(ok(makeStream("a", "b")));

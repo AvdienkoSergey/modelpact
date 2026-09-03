@@ -181,7 +181,7 @@ export function getChosenLabel(saved: string): string {
 // returns a ReadableStream rather than a bare async iterable.
 export async function readStream(session: AiSession) {
   const streamResult = await session.promptStream("hello");
-  // Not failureFrom(r.error): that takes a thrown value and reads `error.name`,
+  // Not failureFromError(r.error): that takes a thrown value and reads `error.name`,
   // so a well-formed AiFailure would come back as { kind: "unknown" }. The
   // signature `unknown -> AiFailure` accepts it, which is exactly the kind of
   // nonsense a type-level test cannot catch.

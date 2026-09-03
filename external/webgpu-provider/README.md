@@ -56,7 +56,7 @@ The fix is the one from the paragraph above: `WebGpuEngine`, a structural type
 of exactly what the backend uses, named here, and no third-party type in any
 exported signature. Same lesson, one package over, found by the same method.
 
-**Nothing else was missing.** `ok`, `err`, `failureFrom`, `contextUsage`,
+**Nothing else was missing.** `ok`, `err`, `failureFromError`, `contextUsage`,
 `fraction`, `tokens`, `createProvider` and the four backend types were the
 whole of what this needed, and all of them are exported.
 

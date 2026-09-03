@@ -14,12 +14,12 @@ import { err, ok, type Fraction, type Result } from "../types/foundations.js";
 import type { AiFailure } from "../types/failures.js";
 import type { ModelRequest } from "../types/messages.js";
 import type { AiSession, SessionOptions } from "../types/session.js";
-import type { Model, ModelBackend } from "../types/backend.js";
+import type { ModelConnection, ModelBackend } from "../types/backend.js";
 import { prompt, promptStream } from "./04_generate.js";
 import { closeSession } from "./05_close.js";
 
 export interface SessionState {
-  readonly model: Model;
+  readonly model: ModelConnection;
   /** Idle, generating or closed, and the only way between the three. */
   readonly lifetime: SessionLifetime;
   readonly events: ContextEvents;

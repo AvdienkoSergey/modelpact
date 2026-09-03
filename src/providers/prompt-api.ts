@@ -19,7 +19,7 @@
  * package at all. `external/webgpu-provider` is where that was found.
  */
 
-import { failureFrom, type AiFailure } from "../types/failures.js";
+import { failureFromError, type AiFailure } from "../types/failures.js";
 import {
   err,
   fraction,
@@ -32,7 +32,7 @@ import type {
   Availability,
   ConnectOptions,
   GenerateRequest,
-  Model,
+  ModelConnection,
   ModelBackend,
 } from "../types/backend.js";
 import type { AiProvider } from "../types/provider.js";
@@ -115,7 +115,7 @@ const getAvailability = async (
   } catch (error) {
     // `NotAllowedError` for the permissions policy, `InvalidStateError` for a
     // document that is not fully active: both are refusals, not crashes.
-    return { kind: "unavailable", reason: failureFrom(error) };
+    return { kind: "unavailable", reason: failureFromError(error) };
   }
 };
 
@@ -163,14 +163,14 @@ const readNumber = (
   return typeof value === "number" ? value : null;
 };
 
-class PromptApiModel implements Model {
+class PromptApiModel implements ModelConnection {
   readonly #session: LanguageModel;
 
   constructor(session: LanguageModel) {
     this.#session = session;
   }
 
-  readonly generate = (
+  readonly generateStream = (
     input: string,
     request: GenerateRequest,
   ): Promise<Result<ReadableStream<string>, AiFailure>> => {
@@ -211,7 +211,7 @@ class PromptApiModel implements Model {
    * so; holding the session is what lets this one attach the reading.
    */
   #refineFailure(error: unknown): AiFailure {
-    const failure = failureFrom(error);
+    const failure = failureFromError(error);
     return failure.kind === "context-overflow"
       ? { ...failure, usage: this.usage() }
       : failure;
@@ -220,7 +220,7 @@ class PromptApiModel implements Model {
 
 const connectPromptApi = async (
   options: ConnectOptions,
-): Promise<Result<Model, AiFailure>> => {
+): Promise<Result<ModelConnection, AiFailure>> => {
   const api = getPlatformApi();
   if (api === null) return err({ kind: "unsupported" });
 
@@ -251,7 +251,7 @@ const connectPromptApi = async (
     };
     return ok(new PromptApiModel(session));
   } catch (error) {
-    return err(failureFrom(error));
+    return err(failureFromError(error));
   }
 };
 
