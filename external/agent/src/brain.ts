@@ -30,7 +30,7 @@ export interface Brain {
   readonly record: () => readonly AiMessage[];
 }
 
-export const brainOfSession = (session: AiSession): Brain => ({
+export const makeSessionBrain = (session: AiSession): Brain => ({
   ask: (input, options) =>
     session.prompt(
       input,
@@ -39,13 +39,15 @@ export const brainOfSession = (session: AiSession): Brain => ({
   record: () => session.history(),
 });
 
-export const brainOfChat = (chat: Orchestrator): Brain => ({
+export const makeChatBrain = (chat: Orchestrator): Brain => ({
   ask: async (input, options) => {
-    const answered = await chat.ask(
+    const answerResult = await chat.ask(
       input,
       options?.schema === undefined ? {} : { schema: options.schema },
     );
-    return answered.ok ? { ok: true, value: answered.value.text } : answered;
+    return answerResult.ok
+      ? { ok: true, value: answerResult.value.text }
+      : answerResult;
   },
   record: () => chat.record(),
 });

@@ -10,20 +10,20 @@ import { makeOllamaProvider } from "modelpact";
 import { makeClaudeCliProvider } from "./claude-cli.js";
 import { orchestrate, type Side } from "./orchestrate.js";
 
-const claudeHere =
+const isClaudeHere =
   spawnSync("claude", ["--version"], { encoding: "utf8" }).status === 0;
-const ollamaHere = await (async () => {
+const isOllamaHere = await (async () => {
   try {
-    const answer = await fetch("http://127.0.0.1:11434/api/tags", {
+    const response = await fetch("http://127.0.0.1:11434/api/tags", {
       signal: AbortSignal.timeout(2_000),
     });
-    return answer.ok;
+    return response.ok;
   } catch {
     return false;
   }
 })();
 
-describe.skipIf(!claudeHere || !ollamaHere)(
+describe.skipIf(!isClaudeHere || !isOllamaHere)(
   "live: claude -p and ollama in one conversation",
   () => {
     test("local, cloud, local — and the third turn saw the second", async () => {
@@ -37,16 +37,21 @@ describe.skipIf(!claudeHere || !ollamaHere)(
         onRoute: (side) => sides.push(side),
       });
 
-      const first = await chat.ask("My favourite colour is teal. Acknowledge.");
-      const second = await chat.ask("Name the capital of France.");
-      const third = await chat.ask("What did I say my favourite colour was?");
+      const firstResult = await chat.ask(
+        "My favourite colour is teal. Acknowledge.",
+      );
+      const secondResult = await chat.ask("Name the capital of France.");
+      const thirdResult = await chat.ask(
+        "What did I say my favourite colour was?",
+      );
 
-      expect(first.ok && second.ok && third.ok).toBe(true);
+      expect(firstResult.ok && secondResult.ok && thirdResult.ok).toBe(true);
       expect(sides).toEqual(["local", "cloud", "local"]);
       expect(chat.record()).toHaveLength(6);
       // The local model was reopened on the whole record, so the answer it gives
       // is about a fact stated before a turn it did not answer.
-      if (third.ok) expect(third.value.text.toLowerCase()).toContain("teal");
+      if (thirdResult.ok)
+        expect(thirdResult.value.text.toLowerCase()).toContain("teal");
       chat.close();
     }, 180_000);
   },

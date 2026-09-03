@@ -15,7 +15,7 @@ import { makeOllamaProvider } from "modelpact";
 import { makeClaudeCliProvider } from "./claude-cli.js";
 import { orchestrate, type Policy } from "./orchestrate.js";
 
-const policyOf = (): Policy => {
+const getPolicy = (): Policy => {
   switch (env.POLICY) {
     case "predicate":
       return {
@@ -40,7 +40,7 @@ const policyOf = (): Policy => {
 };
 
 const main = async (): Promise<void> => {
-  const policy = policyOf();
+  const policy = getPolicy();
   const chat = orchestrate({
     local: makeOllamaProvider({ model: env.LOCAL_MODEL ?? "qwen3:14b" }),
     cloud: makeClaudeCliProvider({
@@ -52,36 +52,36 @@ const main = async (): Promise<void> => {
     onRoute: (side, reason) => stdout.write(`\n  [${side}: ${reason}]\n`),
   });
 
-  const rl = createInterface({ input: stdin, output: stdout });
+  const readline = createInterface({ input: stdin, output: stdout });
   stdout.write(`policy=${policy.kind}. Type a message, or /q to quit.\n`);
   // Iterated, not `question()` in a loop: a piped stdin closes the interface at
   // EOF before a second question can be asked, and `for await` drains what it
   // holds and ends cleanly. In a terminal it is the same prompt loop.
-  rl.setPrompt("> ");
-  rl.prompt();
-  for await (const raw of rl) {
-    const line = raw.trim();
+  readline.setPrompt("> ");
+  readline.prompt();
+  for await (const rawLine of readline) {
+    const line = rawLine.trim();
     if (line === "/q" || line === "") break;
-    const started = await chat.askStream(line);
-    if (!started.ok) {
-      stdout.write(`  refused: ${started.error.kind}\n`);
-      rl.prompt();
+    const streamResult = await chat.askStream(line);
+    if (!streamResult.ok) {
+      stdout.write(`  refused: ${streamResult.error.kind}\n`);
+      readline.prompt();
       continue;
     }
-    const reader = started.value.getReader();
+    const reader = streamResult.value.getReader();
     try {
       for (;;) {
-        const next = await reader.read();
-        if (next.done) break;
-        stdout.write(next.value);
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        stdout.write(chunk.value);
       }
     } catch (error) {
       stdout.write(`\n  stream error: ${String(error)}`);
     }
     stdout.write(`\n  (${chat.record().length} messages)\n`);
-    rl.prompt();
+    readline.prompt();
   }
-  rl.close();
+  readline.close();
   chat.close();
 };
 

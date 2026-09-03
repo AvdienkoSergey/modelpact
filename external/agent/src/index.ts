@@ -14,8 +14,8 @@ export {
   type Side,
 } from "./orchestrate.js";
 export {
-  brainOfChat,
-  brainOfSession,
+  makeChatBrain,
+  makeSessionBrain,
   type AskOptions,
   type Brain,
 } from "./brain.js";

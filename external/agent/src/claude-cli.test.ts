@@ -14,7 +14,7 @@ import {
   type Spawner,
 } from "./claude-cli.js";
 
-const bytes = (text: string): ReadableStream<BufferSource> =>
+const makeByteStream = (text: string): ReadableStream<BufferSource> =>
   new ReadableStream<BufferSource>({
     start: (controller) => {
       controller.enqueue(new TextEncoder().encode(text));
@@ -22,7 +22,7 @@ const bytes = (text: string): ReadableStream<BufferSource> =>
     },
   });
 
-const line = (value: unknown): string => `${JSON.stringify(value)}\n`;
+const toNdjsonLine = (value: unknown): string => `${JSON.stringify(value)}\n`;
 
 interface ScriptOptions {
   readonly answer?: string;
@@ -34,17 +34,19 @@ interface ScriptOptions {
 }
 
 /** What the CLI prints for one turn, delta by delta, at a pace a test can interrupt. */
-const scriptOf = (options: ScriptOptions): ReadableStream<BufferSource> => {
-  const answer = options.answer ?? "one, two, three, four, five";
-  const words = answer.match(/\S+\s*/g) ?? [answer];
-  const delay = options.delayMs ?? 1;
+const makeScriptStream = (
+  options: ScriptOptions,
+): ReadableStream<BufferSource> => {
+  const answerText = options.answer ?? "one, two, three, four, five";
+  const words = answerText.match(/\S+\s*/g) ?? [answerText];
+  const delayMs = options.delayMs ?? 1;
   const encoder = new TextEncoder();
   let step = 0;
   const lines = [
-    line({ type: "system", subtype: "init", model: "claude-opus-4-7" }),
-    line({ type: "stream_event", event: { type: "message_start" } }),
+    toNdjsonLine({ type: "system", subtype: "init", model: "claude-opus-4-7" }),
+    toNdjsonLine({ type: "stream_event", event: { type: "message_start" } }),
     ...words.map((text) =>
-      line({
+      toNdjsonLine({
         type: "stream_event",
         event: {
           type: "content_block_delta",
@@ -53,12 +55,12 @@ const scriptOf = (options: ScriptOptions): ReadableStream<BufferSource> => {
         },
       }),
     ),
-    line({ type: "stream_event", event: { type: "message_stop" } }),
-    line({
+    toNdjsonLine({ type: "stream_event", event: { type: "message_stop" } }),
+    toNdjsonLine({
       type: "result",
       subtype: options.isError === true ? "error" : "success",
       is_error: options.isError === true,
-      result: options.isError === true ? "budget exceeded" : answer,
+      result: options.isError === true ? "budget exceeded" : answerText,
       usage: {
         input_tokens: 6,
         cache_read_input_tokens: 10,
@@ -69,14 +71,14 @@ const scriptOf = (options: ScriptOptions): ReadableStream<BufferSource> => {
   ];
   return new ReadableStream<BufferSource>({
     pull: async (controller) => {
-      await new Promise((resolve) => setTimeout(resolve, delay));
-      const next = lines[step];
-      if (next === undefined) {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+      const nextLine = lines[step];
+      if (nextLine === undefined) {
         controller.close();
         return;
       }
       step += 1;
-      controller.enqueue(encoder.encode(next));
+      controller.enqueue(encoder.encode(nextLine));
     },
   });
 };
@@ -87,16 +89,16 @@ interface Recorded {
 }
 
 /** A spawner that answers from a script and remembers what it was asked to run. */
-const spawnerOf = (
+const makeSpawner = (
   options: ScriptOptions = {},
-): { spawn: Spawner; seen: Recorded } => {
-  const seen = { calls: [] as string[][], killed: 0 };
+): { spawn: Spawner; recorded: Recorded } => {
+  const recorded = { calls: [] as string[][], killed: 0 };
   const spawn: Spawner = (args) => {
-    seen.calls.push([...args]);
+    recorded.calls.push([...args]);
     if (args[0] === "--version") {
       return {
-        stdout: bytes("2.1.138\n"),
-        stderr: bytes(""),
+        stdout: makeByteStream("2.1.138\n"),
+        stderr: makeByteStream(""),
         exited: Promise.resolve(0),
         kill: () => undefined,
       };
@@ -105,7 +107,7 @@ const spawnerOf = (
     const exited = new Promise<number | null>((resolve) => {
       resolveExit = resolve;
     });
-    const stdout = scriptOf(options).pipeThrough(
+    const stdout = makeScriptStream(options).pipeThrough(
       new TransformStream<BufferSource, BufferSource>({
         flush: () => {
           resolveExit(options.exitCode ?? 0);
@@ -114,30 +116,30 @@ const spawnerOf = (
     );
     const spawned: Spawned = {
       stdout,
-      stderr: bytes(options.stderr ?? ""),
+      stderr: makeByteStream(options.stderr ?? ""),
       exited,
       kill: () => {
-        seen.killed += 1;
+        recorded.killed += 1;
         resolveExit(143);
       },
     };
     return spawned;
   };
-  return { spawn, seen };
+  return { spawn, recorded };
 };
 
-const stubbed = (
+const makeStubbedProvider = (
   options: ScriptOptions = {},
   contextWindow?: number,
 ): AiProvider =>
   makeClaudeCliProvider({
-    spawn: spawnerOf(options).spawn,
+    spawn: makeSpawner(options).spawn,
     ...(contextWindow === undefined ? {} : { contextWindow }),
   });
 
 const missingBinary: Spawner = () => ({
-  stdout: bytes(""),
-  stderr: bytes(""),
+  stdout: makeByteStream(""),
+  stderr: makeByteStream(""),
   exited: Promise.reject(
     Object.assign(new Error("spawn claude ENOENT"), { code: "ENOENT" }),
   ),
@@ -147,24 +149,25 @@ const missingBinary: Spawner = () => ({
 describeContract("claude-cli on a scripted process", (scenario) => {
   switch (scenario) {
     case "ready":
-      return stubbed();
+      return makeStubbedProvider();
     case "unavailable":
       return makeClaudeCliProvider({ spawn: missingBinary });
     case "needs-download":
       return null;
     case "tiny-window":
       // 6 + 10 + 4 + 5 = 25 counted tokens against a window of 1.
-      return stubbed({}, 1);
+      return makeStubbedProvider({}, 1);
   }
 });
 
-const openWith = async (provider: AiProvider) => {
+const mustOpenSession = async (provider: AiProvider) => {
   const access = await provider.access();
   if (access.kind !== "ready")
     throw new Error(`expected ready, got ${access.kind}`);
-  const opened = await access.open({ system: "Be brief." });
-  if (!opened.ok) throw new Error(`open refused: ${opened.error.kind}`);
-  return opened.value;
+  const sessionResult = await access.open({ system: "Be brief." });
+  if (!sessionResult.ok)
+    throw new Error(`open refused: ${sessionResult.error.kind}`);
+  return sessionResult.value;
 };
 
 describe("claude-cli mapping", () => {
@@ -178,15 +181,15 @@ describe("claude-cli mapping", () => {
   });
 
   test("the conversation is rendered into the prompt, with the new turn last", async () => {
-    const { spawn, seen } = spawnerOf({ answer: "ok" });
-    const session = await openWith(makeClaudeCliProvider({ spawn }));
+    const { spawn, recorded } = makeSpawner({ answer: "ok" });
+    const session = await mustOpenSession(makeClaudeCliProvider({ spawn }));
     await session.prompt("first");
     await session.prompt("second");
-    const args = seen.calls.at(-1) ?? [];
-    const prompt = args[args.indexOf("-p") + 1] ?? "";
-    expect(prompt).toContain("user: first");
-    expect(prompt).toContain("assistant: ok");
-    expect(prompt.endsWith("user: second")).toBe(true);
+    const args = recorded.calls.at(-1) ?? [];
+    const promptArg = args[args.indexOf("-p") + 1] ?? "";
+    expect(promptArg).toContain("user: first");
+    expect(promptArg).toContain("assistant: ok");
+    expect(promptArg.endsWith("user: second")).toBe(true);
     // A model behind a contract, not an agent in a repo.
     expect(args).toContain("--tools");
     expect(args[args.indexOf("--tools") + 1]).toBe("");
@@ -196,54 +199,62 @@ describe("claude-cli mapping", () => {
   });
 
   test("a schema is refused, because the CLI's own flag fails in this mode", async () => {
-    const session = await openWith(stubbed());
-    const answer = await session.prompt("Name the capital of France.", {
+    const session = await mustOpenSession(makeStubbedProvider());
+    const answerResult = await session.prompt("Name the capital of France.", {
       schema: CONTRACT_SCHEMA,
     });
-    expect(answer.ok).toBe(false);
-    if (!answer.ok) expect(answer.error.kind).toBe("unsupported-config");
+    expect(answerResult.ok).toBe(false);
+    if (!answerResult.ok)
+      expect(answerResult.error.kind).toBe("unsupported-config");
     session.close();
   });
 
   test("an abort kills the process and the turn is reported as aborted", async () => {
-    const { spawn, seen } = spawnerOf({ delayMs: 15 });
-    const session = await openWith(makeClaudeCliProvider({ spawn }));
+    const { spawn, recorded } = makeSpawner({ delayMs: 15 });
+    const session = await mustOpenSession(makeClaudeCliProvider({ spawn }));
     const controller = new AbortController();
     setTimeout(() => controller.abort(), 30);
-    const answer = await session.prompt("a long one", {
+    const answerResult = await session.prompt("a long one", {
       signal: controller.signal,
     });
-    expect(answer.ok).toBe(false);
-    if (!answer.ok) expect(answer.error.kind).toBe("aborted");
-    expect(seen.killed).toBe(1);
+    expect(answerResult.ok).toBe(false);
+    if (!answerResult.ok) expect(answerResult.error.kind).toBe("aborted");
+    expect(recorded.killed).toBe(1);
     session.close();
   });
 
   test("a non-zero exit carries the CLI's stderr as the detail", async () => {
-    const session = await openWith(
-      stubbed({ exitCode: 1, stderr: "Not logged in. Run claude login." }),
+    const session = await mustOpenSession(
+      makeStubbedProvider({
+        exitCode: 1,
+        stderr: "Not logged in. Run claude login.",
+      }),
     );
-    const answer = await session.prompt("hello");
-    expect(answer.ok).toBe(false);
-    if (!answer.ok) {
-      expect(answer.error.kind).toBe("failed");
-      if (answer.error.kind === "failed")
-        expect(answer.error.detail).toContain("Not logged in");
+    const answerResult = await session.prompt("hello");
+    expect(answerResult.ok).toBe(false);
+    if (!answerResult.ok) {
+      expect(answerResult.error.kind).toBe("failed");
+      if (answerResult.error.kind === "failed")
+        expect(answerResult.error.detail).toContain("Not logged in");
     }
     session.close();
   });
 
   test("a result line flagged is_error is a failure with its own words", async () => {
-    const session = await openWith(stubbed({ isError: true }));
-    const answer = await session.prompt("hello");
-    expect(answer.ok).toBe(false);
-    if (!answer.ok && answer.error.kind === "failed")
-      expect(answer.error.detail).toBe("budget exceeded");
+    const session = await mustOpenSession(
+      makeStubbedProvider({ isError: true }),
+    );
+    const answerResult = await session.prompt("hello");
+    expect(answerResult.ok).toBe(false);
+    if (!answerResult.ok && answerResult.error.kind === "failed")
+      expect(answerResult.error.detail).toBe("budget exceeded");
     session.close();
   });
 
   test("the meter is the result line's counts, all four of them", async () => {
-    const session = await openWith(stubbed({ outputTokens: 7 }, 1000));
+    const session = await mustOpenSession(
+      makeStubbedProvider({ outputTokens: 7 }, 1000),
+    );
     await session.prompt("hello");
     const usage = session.usage();
     expect(usage.kind).toBe("bounded");

@@ -84,12 +84,14 @@ export interface WebGpuConfig {
   /** Tokens the session is measured against; the engine reports no window of its own. */
   readonly contextWindow?: number;
   /** For a test: an engine already built, instead of one loaded from the network. */
-  readonly engine?: (report: (loaded: number) => void) => Promise<WebGpuEngine>;
+  readonly engine?: (
+    reportProgress: (progress: number) => void,
+  ) => Promise<WebGpuEngine>;
 }
 
 const DEFAULTS = { contextWindow: 4096 };
 
-const ZERO = tokens(0) ?? (0 as never);
+const ZERO_TOKENS = tokens(0) ?? (0 as never);
 
 /** WebGPU or nothing: the engine has a WASM path, but not one worth offering. */
 const hasWebGpu = (): boolean =>
@@ -103,11 +105,12 @@ const hasWebGpu = (): boolean =>
 const isCached = async (model: string): Promise<boolean> => {
   if (typeof caches === "undefined") return false;
   try {
-    const names = await caches.keys();
-    for (const name of names) {
-      const opened = await caches.open(name);
-      const held = await opened.keys();
-      if (held.some((request) => request.url.includes(model))) return true;
+    const cacheNames = await caches.keys();
+    for (const cacheName of cacheNames) {
+      const cache = await caches.open(cacheName);
+      const cachedRequests = await cache.keys();
+      if (cachedRequests.some((request) => request.url.includes(model)))
+        return true;
     }
     return false;
   } catch {
@@ -123,17 +126,17 @@ const getAvailability = async (config: WebGpuConfig): Promise<Availability> => {
       reason: { kind: "unsupported-config", languages: [], modalities: [] },
     };
   }
-  const cached = await isCached(config.model);
-  return cached
+  const isModelCached = await isCached(config.model);
+  return isModelCached
     ? { kind: "ready" }
     : { kind: "needs-download", started: false };
 };
 
 /** The engine reports a stage and a percentage; only the number is ours to pass on. */
-const progressOf = (report: InitProgressReport): number =>
-  typeof report.progress === "number" ? report.progress : 0;
+const readProgress = (initReport: InitProgressReport): number =>
+  typeof initReport.progress === "number" ? initReport.progress : 0;
 
-class WebGpuModel implements ModelConnection {
+class WebGpuConnection implements ModelConnection {
   readonly #engine: WebGpuEngine;
   readonly #model: string;
   readonly #contextWindow: number;
@@ -158,7 +161,7 @@ class WebGpuModel implements ModelConnection {
     try {
       const chunks = await this.#engine.chat.completions.create({
         model: this.#model,
-        messages: this.#messagesFor(input, request),
+        messages: this.#toEngineMessages(input, request),
         stream: true,
         stream_options: { include_usage: true },
         ...(request.schema === undefined
@@ -170,28 +173,32 @@ class WebGpuModel implements ModelConnection {
               },
             }),
       });
-      return ok(this.#deltasOf(chunks));
+      return ok(this.#toDeltaStream(chunks));
     } catch (error) {
       return err(failureFromError(error));
     }
   };
 
   readonly usage = (): ContextUsage =>
-    contextUsage(tokens(this.#usedTokens) ?? ZERO, this.#contextWindow);
+    contextUsage(tokens(this.#usedTokens) ?? ZERO_TOKENS, this.#contextWindow);
 
   readonly dispose = (): void => {
     void this.#engine.unload();
   };
 
-  #messagesFor(input: string, request: GenerateRequest) {
-    const said = request.history.map((message) => ({
+  #toEngineMessages(input: string, request: GenerateRequest) {
+    const historyMessages = request.history.map((message) => ({
       role: message.role,
       content: message.content,
     }));
-    const asked = { role: "user" as const, content: input };
+    const askedMessage = { role: "user" as const, content: input };
     return this.#system === undefined
-      ? [...said, asked]
-      : [{ role: "system" as const, content: this.#system }, ...said, asked];
+      ? [...historyMessages, askedMessage]
+      : [
+          { role: "system" as const, content: this.#system },
+          ...historyMessages,
+          askedMessage,
+        ];
   }
 
   /**
@@ -207,7 +214,7 @@ class WebGpuModel implements ModelConnection {
    * What is left to do is tell the engine, since it takes no signal of its own:
    * `cancel` reaches every way out — the reader stopping, the abort, the close.
    */
-  #deltasOf(chunks: AsyncIterable<EngineChunk>): ReadableStream<string> {
+  #toDeltaStream(chunks: AsyncIterable<EngineChunk>): ReadableStream<string> {
     const iterator = chunks[Symbol.asyncIterator]();
     return new ReadableStream<string>({
       // Loops until it can enqueue or close: a pull that returns empty-handed
@@ -216,12 +223,12 @@ class WebGpuModel implements ModelConnection {
       // Found in the sibling package on `claude -p`, fixed here before it bit.
       pull: async (controller) => {
         for (;;) {
-          const next = await iterator.next();
-          if (next.done === true) {
+          const iteration = await iterator.next();
+          if (iteration.done === true) {
             controller.close();
             return;
           }
-          const chunk = next.value;
+          const chunk = iteration.value;
           if (chunk.usage != null) this.#usedTokens = chunk.usage.total_tokens;
           const delta = chunk.choices[0]?.delta.content ?? "";
           if (delta !== "") {
@@ -247,11 +254,11 @@ class WebGpuModel implements ModelConnection {
  */
 const loadEngine = async (
   model: string,
-  report: (loaded: number) => void,
+  reportProgress: (progress: number) => void,
 ): Promise<WebGpuEngine> => {
-  const real = await CreateMLCEngine(model, {
-    initProgressCallback: (progress) => {
-      report(progressOf(progress));
+  const realEngine = await CreateMLCEngine(model, {
+    initProgressCallback: (initReport) => {
+      reportProgress(readProgress(initReport));
     },
   });
   return {
@@ -260,15 +267,15 @@ const loadEngine = async (
         // A fresh array: ours is `readonly`, which is right for a request
         // nobody should edit, and the engine's signature wants a mutable one.
         create: (request) =>
-          real.chat.completions.create({
+          realEngine.chat.completions.create({
             ...request,
             messages: [...request.messages],
           }),
       },
     },
-    unload: () => real.unload(),
+    unload: () => realEngine.unload(),
     interruptGenerate: () => {
-      real.interruptGenerate();
+      realEngine.interruptGenerate();
     },
   };
 };
@@ -277,16 +284,16 @@ const connectEngine = async (
   config: WebGpuConfig,
   options: ConnectOptions,
 ): Promise<Result<ModelConnection, AiFailure>> => {
-  const report = (loaded: number): void => {
-    const at = fraction(loaded);
-    if (at !== null) options.reportProgress(at);
+  const reportProgress = (progress: number): void => {
+    const progressFraction = fraction(progress);
+    if (progressFraction !== null) options.reportProgress(progressFraction);
   };
   try {
     const engine =
       config.engine === undefined
-        ? await loadEngine(config.model, report)
-        : await config.engine(report);
-    return ok(new WebGpuModel(engine, config, options));
+        ? await loadEngine(config.model, reportProgress)
+        : await config.engine(reportProgress);
+    return ok(new WebGpuConnection(engine, config, options));
   } catch (error) {
     return err(failureFromError(error));
   }

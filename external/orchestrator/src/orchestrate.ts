@@ -87,7 +87,7 @@ const ROUTE_BRIEF =
 const err = <E>(error: E): Result<never, E> => ({ ok: false, error });
 const ok = <T>(value: T): Result<T, never> => ({ ok: true, value });
 
-const openOn = async (
+const openSessionOn = async (
   provider: AiProvider,
   history: readonly AiMessage[],
   system: string | undefined,
@@ -105,17 +105,17 @@ const openOn = async (
     : access.open(() => undefined, options);
 };
 
-const drain = async (stream: ReadableStream<string>): Promise<string> => {
+const drainStream = async (stream: ReadableStream<string>): Promise<string> => {
   const reader = stream.getReader();
-  const parts: string[] = [];
+  const answerParts: string[] = [];
   for (;;) {
-    const next = await reader.read();
-    if (next.done) return parts.join("");
-    parts.push(next.value);
+    const chunk = await reader.read();
+    if (chunk.done) return answerParts.join("");
+    answerParts.push(chunk.value);
   }
 };
 
-const oneMessage = (text: string): ReadableStream<string> =>
+const makeSingleChunkStream = (text: string): ReadableStream<string> =>
   new ReadableStream<string>({
     start: (controller) => {
       controller.enqueue(text);
@@ -144,21 +144,26 @@ class SideSession {
   }
 
   /** Current when it has answered every turn in the record since it was opened. */
-  async sessionFor(
+  async getCurrentSession(
     record: readonly AiMessage[],
   ): Promise<Result<AiSession, AiFailure>> {
-    const held = this.#session;
-    if (held !== null && this.#seenTurns === record.length) return ok(held);
-    held?.close();
-    const opened = await openOn(this.#provider, record, this.#system);
-    if (!opened.ok) return opened;
-    this.#session = opened.value;
+    const heldSession = this.#session;
+    if (heldSession !== null && this.#seenTurns === record.length)
+      return ok(heldSession);
+    heldSession?.close();
+    const sessionResult = await openSessionOn(
+      this.#provider,
+      record,
+      this.#system,
+    );
+    if (!sessionResult.ok) return sessionResult;
+    this.#session = sessionResult.value;
     this.#seenTurns = record.length;
-    return opened;
+    return sessionResult;
   }
 
   /** Told after a turn it answered, so the next one can reuse it. */
-  answered(recordLength: number): void {
+  markAnswered(recordLength: number): void {
     this.#seenTurns = recordLength;
   }
 
@@ -195,7 +200,7 @@ class TwoModelChat implements Orchestrator {
   readonly ask = async (input: string): Promise<Result<Answer, AiFailure>> => {
     const policy = this.#parts.policy;
     if (policy.kind === "escalate") return this.#escalate(input, policy.accept);
-    const side = await this.#choose(input);
+    const side = await this.#chooseSide(input);
     return this.#turn(side, input);
   };
 
@@ -205,16 +210,20 @@ class TwoModelChat implements Orchestrator {
     const policy = this.#parts.policy;
     // Whole first, then one piece: `escalate` has to see the answer to judge it.
     if (policy.kind === "escalate") {
-      const answered = await this.#escalate(input, policy.accept);
-      return answered.ok ? ok(oneMessage(answered.value.text)) : answered;
+      const answerResult = await this.#escalate(input, policy.accept);
+      return answerResult.ok
+        ? ok(makeSingleChunkStream(answerResult.value.text))
+        : answerResult;
     }
-    const side = await this.#choose(input);
-    const sides = this.#sideOf(side);
-    const session = await sides.sessionFor(this.#record);
-    if (!session.ok) return session;
-    const started = await session.value.promptStream(input);
-    if (!started.ok) return started;
-    return ok(this.#recordingStream(started.value, side, input, sides));
+    const side = await this.#chooseSide(input);
+    const sideSession = this.#getSideSession(side);
+    const sessionResult = await sideSession.getCurrentSession(this.#record);
+    if (!sessionResult.ok) return sessionResult;
+    const streamResult = await sessionResult.value.promptStream(input);
+    if (!streamResult.ok) return streamResult;
+    return ok(
+      this.#recordingStream(streamResult.value, side, input, sideSession),
+    );
   };
 
   readonly close = (): void => {
@@ -223,78 +232,91 @@ class TwoModelChat implements Orchestrator {
     this.#judge?.close();
   };
 
-  #sideOf(side: Side): SideSession {
+  #getSideSession(side: Side): SideSession {
     return side === "cloud" ? this.#cloud : this.#local;
   }
 
-  #tell(side: Side, reason: string): Side {
+  #reportRoute(side: Side, reason: string): Side {
     this.#parts.onRoute?.(side, reason);
     return side;
   }
 
-  async #choose(input: string): Promise<Side> {
+  async #chooseSide(input: string): Promise<Side> {
     const policy = this.#parts.policy;
     if (policy.kind === "predicate")
-      return this.#tell(
+      return this.#reportRoute(
         policy.cloudWhen(input, this.#record) ? "cloud" : "local",
         "predicate",
       );
-    if (policy.kind !== "classify") return this.#tell("local", "no policy");
+    if (policy.kind !== "classify")
+      return this.#reportRoute("local", "no policy");
     return this.#askJudge(input, policy.brief ?? ROUTE_BRIEF);
   }
 
   /** The judge sees the message and nothing else: it decides where a turn goes, not what it says. */
   async #askJudge(input: string, brief: string): Promise<Side> {
     const judge = this.#judge;
-    if (judge === null) return this.#tell("local", "no judge");
-    const session = await judge.sessionFor([]);
-    if (!session.ok)
-      return this.#tell("local", `judge unavailable: ${session.error.kind}`);
-    const asked = await session.value.prompt(
+    if (judge === null) return this.#reportRoute("local", "no judge");
+    const sessionResult = await judge.getCurrentSession([]);
+    if (!sessionResult.ok)
+      return this.#reportRoute(
+        "local",
+        `judge unavailable: ${sessionResult.error.kind}`,
+      );
+    const answerResult = await sessionResult.value.prompt(
       `${brief}\n\nMessage:\n${input}\n\nAnswer with JSON: {"route":"local"} or {"route":"cloud"}.`,
     );
-    if (!asked.ok)
-      return this.#tell("local", `judge refused: ${asked.error.kind}`);
-    const parsed: unknown = (() => {
+    if (!answerResult.ok)
+      return this.#reportRoute(
+        "local",
+        `judge refused: ${answerResult.error.kind}`,
+      );
+    const parsedAnswer: unknown = (() => {
       try {
-        return JSON.parse(asked.value);
+        return JSON.parse(answerResult.value);
       } catch {
         return null;
       }
     })();
-    const route = (parsed as { route?: unknown } | null)?.route;
+    const route = (parsedAnswer as { route?: unknown } | null)?.route;
     if (route === "cloud" || route === "local")
-      return this.#tell(route, "judge");
-    return this.#tell("local", "judge answered outside the shape");
+      return this.#reportRoute(route, "judge");
+    return this.#reportRoute("local", "judge answered outside the shape");
   }
 
   async #turn(side: Side, input: string): Promise<Result<Answer, AiFailure>> {
-    const sides = this.#sideOf(side);
-    const session = await sides.sessionFor(this.#record);
-    if (!session.ok) return session;
-    const answered = await session.value.prompt(input);
-    if (!answered.ok) return answered;
-    this.#append(input, answered.value, sides);
-    return ok({ side, text: answered.value, usage: sides.usage() });
+    const sideSession = this.#getSideSession(side);
+    const sessionResult = await sideSession.getCurrentSession(this.#record);
+    if (!sessionResult.ok) return sessionResult;
+    const answerResult = await sessionResult.value.prompt(input);
+    if (!answerResult.ok) return answerResult;
+    this.#append(input, answerResult.value, sideSession);
+    return ok({
+      side,
+      text: answerResult.value,
+      usage: sideSession.usage(),
+    });
   }
 
   async #escalate(
     input: string,
     accept: (answer: string) => boolean,
   ): Promise<Result<Answer, AiFailure>> {
-    const first = await this.#turnUnrecorded("local", input);
-    if (first.ok && accept(first.value)) {
-      this.#tell("local", "accepted");
-      this.#append(input, first.value, this.#local);
+    const localResult = await this.#turnUnrecorded("local", input);
+    if (localResult.ok && accept(localResult.value)) {
+      this.#reportRoute("local", "accepted");
+      this.#append(input, localResult.value, this.#local);
       return ok({
         side: "local",
-        text: first.value,
+        text: localResult.value,
         usage: this.#local.usage(),
       });
     }
-    this.#tell(
+    this.#reportRoute(
       "cloud",
-      first.ok ? "local answer rejected" : `local failed: ${first.error.kind}`,
+      localResult.ok
+        ? "local answer rejected"
+        : `local failed: ${localResult.error.kind}`,
     );
     return this.#turn("cloud", input);
   }
@@ -309,41 +331,43 @@ class TwoModelChat implements Orchestrator {
     side: Side,
     input: string,
   ): Promise<Result<string, AiFailure>> {
-    const session = await this.#sideOf(side).sessionFor(this.#record);
-    if (!session.ok) return session;
-    return session.value.prompt(input);
+    const sessionResult = await this.#getSideSession(side).getCurrentSession(
+      this.#record,
+    );
+    if (!sessionResult.ok) return sessionResult;
+    return sessionResult.value.prompt(input);
   }
 
   /** The record grows only on a turn that was kept, and the answering side is current again. */
-  #append(input: string, answer: string, sides: SideSession): void {
+  #append(input: string, answer: string, sideSession: SideSession): void {
     this.#record = [
       ...this.#record,
       { role: "user", content: input },
       { role: "assistant", content: answer },
     ];
-    sides.answered(this.#record.length);
+    sideSession.markAnswered(this.#record.length);
   }
 
   #recordingStream(
-    source: ReadableStream<string>,
+    sourceStream: ReadableStream<string>,
     side: Side,
     input: string,
-    sides: SideSession,
+    sideSession: SideSession,
   ): ReadableStream<string> {
-    const reader = source.getReader();
-    const parts: string[] = [];
+    const reader = sourceStream.getReader();
+    const answerParts: string[] = [];
     return new ReadableStream<string>({
       pull: async (controller) => {
-        const next = await reader.read();
-        if (next.done) {
+        const chunk = await reader.read();
+        if (chunk.done) {
           // Completed turns only, as the session's own record does it.
-          this.#append(input, parts.join(""), sides);
-          this.#tell(side, "streamed");
+          this.#append(input, answerParts.join(""), sideSession);
+          this.#reportRoute(side, "streamed");
           controller.close();
           return;
         }
-        parts.push(next.value);
-        controller.enqueue(next.value);
+        answerParts.push(chunk.value);
+        controller.enqueue(chunk.value);
       },
       cancel: (reason) => reader.cancel(reason),
     });

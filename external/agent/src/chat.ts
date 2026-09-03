@@ -15,17 +15,17 @@ import { resolve } from "node:path";
 import { makeOllamaProvider, type AiFailure, type AiSession } from "modelpact";
 
 import { runAgent, type AgentEvent } from "./agent.js";
-import { brainOfChat, brainOfSession, type Brain } from "./brain.js";
+import { makeChatBrain, makeSessionBrain, type Brain } from "./brain.js";
 import { makeClaudeCliProvider } from "./claude-cli.js";
 import { orchestrate, type Orchestrator, type Policy } from "./orchestrate.js";
 import { listFilesTool, readFileTool, writeNoteTool } from "./tools.js";
 
 const AGENT_MODEL = env.AGENT_MODEL ?? "qwen3:14b";
 
-const policyOf = (): Policy => {
+const getPolicy = (): Policy => {
   switch (env.POLICY) {
     case "escalate":
-      return { kind: "escalate", accept: (said) => said.length > 40 };
+      return { kind: "escalate", accept: (answer) => answer.length > 40 };
     case "classify":
       return {
         kind: "classify",
@@ -39,27 +39,27 @@ const policyOf = (): Policy => {
 interface Thinker {
   readonly brain: Brain;
   readonly close: () => void;
-  readonly what: string;
+  readonly label: string;
 }
 
-const routedThinker = (): Thinker => {
+const makeRoutedThinker = (): Thinker => {
   const chat: Orchestrator = orchestrate({
     local: makeOllamaProvider({ model: AGENT_MODEL, contextWindow: 8192 }),
     cloud: makeClaudeCliProvider({
       model: env.CLAUDE_MODEL ?? "sonnet",
       maxBudgetUsd: 0.5,
     }),
-    policy: policyOf(),
-    onRoute: (side, why) => stdout.write(`  · routed ${side} (${why})\n`),
+    policy: getPolicy(),
+    onRoute: (side, reason) => stdout.write(`  · routed ${side} (${reason})\n`),
   });
   return {
-    brain: brainOfChat(chat),
+    brain: makeChatBrain(chat),
     close: () => chat.close(),
-    what: `routed · ${AGENT_MODEL} + claude`,
+    label: `routed · ${AGENT_MODEL} + claude`,
   };
 };
 
-const singleThinker = async (): Promise<Thinker | null> => {
+const makeSingleThinker = async (): Promise<Thinker | null> => {
   const access = await makeOllamaProvider({
     model: AGENT_MODEL,
     contextWindow: 8192,
@@ -68,27 +68,27 @@ const singleThinker = async (): Promise<Thinker | null> => {
     stdout.write(`no model: ${access.reason.kind}\n`);
     return null;
   }
-  const opened =
+  const sessionResult =
     access.kind === "ready"
       ? await access.open()
       : await access.open(() => undefined);
-  if (!opened.ok) {
-    stdout.write(`open refused: ${opened.error.kind}\n`);
+  if (!sessionResult.ok) {
+    stdout.write(`open refused: ${sessionResult.error.kind}\n`);
     return null;
   }
-  const session: AiSession = opened.value;
+  const session: AiSession = sessionResult.value;
   return {
-    brain: brainOfSession(session),
+    brain: makeSessionBrain(session),
     close: () => session.close(),
-    what: AGENT_MODEL,
+    label: AGENT_MODEL,
   };
 };
 
 /** The kind alone says almost nothing; every failure that carries a detail carries the reason. */
-const explain = (failure: AiFailure): string =>
+const explainFailure = (failure: AiFailure): string =>
   "detail" in failure ? `${failure.kind}: ${failure.detail}` : failure.kind;
 
-const show = (event: AgentEvent): void => {
+const showEvent = (event: AgentEvent): void => {
   if (event.kind === "thought") stdout.write(`  · ${event.reason}\n`);
   if (event.kind === "tool")
     stdout.write(`  → ${event.name}(${JSON.stringify(event.args)})\n`);
@@ -100,42 +100,42 @@ const show = (event: AgentEvent): void => {
 
 const main = async (): Promise<void> => {
   const thinker =
-    env.BRAIN === "routed" ? routedThinker() : await singleThinker();
+    env.BRAIN === "routed" ? makeRoutedThinker() : await makeSingleThinker();
   if (thinker === null) return;
 
   const root = resolve(env.ROOT ?? cwd());
   const tools = [listFilesTool(root), readFileTool(root), writeNoteTool(root)];
   // Explicit, and off by default: a gate that opens itself is not a gate.
-  const approving = env.APPROVE === "always";
+  const isApproving = env.APPROVE === "always";
 
-  const rl = createInterface({ input: stdin, output: stdout });
+  const readline = createInterface({ input: stdin, output: stdout });
   stdout.write(
-    `brain=${thinker.what} · root=${root} · approve=${approving ? "always" : "never"}\n`,
+    `brain=${thinker.label} · root=${root} · approve=${isApproving ? "always" : "never"}\n`,
   );
   stdout.write("Give it a task, or /q to quit.\n");
-  rl.setPrompt("> ");
-  rl.prompt();
-  for await (const raw of rl) {
-    const task = raw.trim();
+  readline.setPrompt("> ");
+  readline.prompt();
+  for await (const rawLine of readline) {
+    const task = rawLine.trim();
     if (task === "/q" || task === "") break;
-    const run = await runAgent(
+    const runResult = await runAgent(
       {
         brain: thinker.brain,
         tools,
         maxSteps: 8,
-        approve: () => approving,
-        onEvent: show,
+        approve: () => isApproving,
+        onEvent: showEvent,
       },
       task,
     );
-    if (run.ok)
+    if (runResult.ok)
       stdout.write(
-        `\n${run.value.text}\n  (${run.value.steps} steps, ${run.value.constrained ? "schema" : "prose"})\n`,
+        `\n${runResult.value.text}\n  (${runResult.value.steps} steps, ${runResult.value.constrained ? "schema" : "prose"})\n`,
       );
-    else stdout.write(`  refused: ${explain(run.error)}\n`);
-    rl.prompt();
+    else stdout.write(`  refused: ${explainFailure(runResult.error)}\n`);
+    readline.prompt();
   }
-  rl.close();
+  readline.close();
   thinker.close();
 };
 
