@@ -75,6 +75,15 @@ The refusal is not an obstacle here; it is the signal that picks the mode, and
 nowhere for a third role. The result goes back as the next user message, and
 that is the whole of the mapping — the reason no tool protocol was needed.
 
+**A tool that only pretends.** The first version of `writeNote` declared that
+it needed approval and then wrote nothing, returning `would append …`. The gate
+exists so that a tool which really acts can be shipped safely, and one that
+asks permission and then does nothing demonstrates the opposite. It also lied
+twice over: the model was told the line was appended, and could report as much
+back. It appends now, into `notes.txt`, contained by the same check the readers
+use — so the worst an approved call can do is add a line to one file in the
+workspace.
+
 **The path-token parser.** That agent resolves every path out of a shell
 command and refuses what leaves the trust root, which takes a hundred lines
 because its `bash` tool can reach anywhere. These tools take a path and nothing

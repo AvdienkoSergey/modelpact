@@ -8,8 +8,8 @@
  * tool would mean shipping the hundred lines too; this package does not.
  */
 
-import { readFile, readdir, stat } from "node:fs/promises";
-import { join, relative, resolve, sep } from "node:path";
+import { appendFile, readFile, readdir, stat } from "node:fs/promises";
+import { relative, resolve, sep } from "node:path";
 import { jsonSchema, type JsonSchema } from "modelpact";
 
 import type { Tool } from "./agent.js";
@@ -75,8 +75,14 @@ export const listFilesTool = (root: string): Tool => ({
 });
 
 /**
- * Needs approval, and has nothing behind it. It is here so the gate is
- * exercised by something a test can assert on rather than by a shell.
+ * The one tool here that changes something, and therefore the one behind the
+ * gate. It really appends: a tool that asks permission and then does nothing
+ * teaches the opposite of what the gate is for, and it lies to the model —
+ * asked to write, told "would write", the model reports back that it wrote.
+ *
+ * The gate is the safety, and containment is the same `within` the readers use,
+ * so the worst an approved call can do is add a line to one file in the
+ * workspace.
  */
 export const writeNoteTool = (root: string): Tool => ({
   name: "writeNote",
@@ -88,6 +94,12 @@ export const writeNoteTool = (root: string): Tool => ({
     additionalProperties: false,
   }),
   needsApproval: true,
-  execute: (args) =>
-    `would append to ${join(root, "notes.txt")}: ${String(args["line"] ?? "")}`,
+  execute: async (args) => {
+    const line = args["line"];
+    if (typeof line !== "string" || line === "")
+      throw new Error("line must be a non-empty string");
+    const full = within(root, "notes.txt");
+    await appendFile(full, `${line}\n`, "utf8");
+    return `appended to notes.txt: ${line}`;
+  },
 });

@@ -2,7 +2,7 @@
  * The containment rule, which is the one part of a tool that has to be right.
  * Everything else a tool does is its own business; leaving the workspace is not.
  */
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeAll, describe, expect, test } from "vitest";
@@ -55,5 +55,19 @@ describe("workspace tools", () => {
 
   test("the note tool declares that it needs approval", () => {
     expect(writeNoteTool(root).needsApproval).toBe(true);
+  });
+
+  test("the note tool really appends, which is what the gate is guarding", async () => {
+    const tool = writeNoteTool(root);
+    expect(await tool.execute({ line: "first" })).toContain("appended");
+    await tool.execute({ line: "second" });
+    const written = await readFile(join(root, "notes.txt"), "utf8");
+    expect(written).toBe("first\nsecond\n");
+  });
+
+  test("an empty line is refused before the file is touched", async () => {
+    await expect(writeNoteTool(root).execute({ line: "" })).rejects.toThrow(
+      /non-empty/,
+    );
   });
 });
