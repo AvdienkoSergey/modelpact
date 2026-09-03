@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.10.1](https://github.com/AvdienkoSergey/modelpact/compare/v1.10.0...v1.10.1) (2026-09-03)
+
+
+### Refactoring
+
+* **demo:** the shop window buys the package the way everyone else does ([b9a2a1b](https://github.com/AvdienkoSergey/modelpact/commit/b9a2a1b75764f11ac366c6af1d74aa374272e4b1))
+
+
+### CI
+
+* install the external package wherever the demo is served ([c1c775a](https://github.com/AvdienkoSergey/modelpact/commit/c1c775a0d050674dfd921351ee31d086307c95d1))
+
 ## [1.10.0](https://github.com/AvdienkoSergey/modelpact/compare/v1.9.0...v1.10.0) (2026-09-03)
 
 
