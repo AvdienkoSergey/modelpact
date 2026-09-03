@@ -33,29 +33,29 @@ describe("mock configuration", () => {
   test("a schema is refused when no reply was configured for one", async () => {
     const access = await makeMockProvider().access();
     if (access.kind !== "ready") throw new Error("expected ready");
-    const opened = await access.open();
-    if (!opened.ok) throw new Error("expected a session");
+    const sessionResult = await access.open();
+    if (!sessionResult.ok) throw new Error("expected a session");
 
-    const answer = await opened.value.prompt("hello", {
+    const answerResult = await sessionResult.value.prompt("hello", {
       schema: CONTRACT_SCHEMA,
     });
-    expect(answer.ok).toBe(false);
-    if (!answer.ok) expect(answer.error.kind).toBe("failed");
-    opened.value.close();
+    expect(answerResult.ok).toBe(false);
+    if (!answerResult.ok) expect(answerResult.error.kind).toBe("failed");
+    sessionResult.value.close();
   });
 
   test("history handed at open is already charged", async () => {
     const access = await makeMockProvider().access();
     if (access.kind !== "ready") throw new Error("expected ready");
-    const opened = await access.open({
+    const sessionResult = await access.open({
       history: [{ role: "user", content: "three words here" }],
     });
-    if (!opened.ok) throw new Error("expected a session");
+    if (!sessionResult.ok) throw new Error("expected a session");
 
-    const usage = opened.value.usage();
+    const usage = sessionResult.value.usage();
     expect(usage.kind).toBe("bounded");
     if (usage.kind === "bounded") expect(usage.used).toBe(3);
-    opened.value.close();
+    sessionResult.value.close();
   });
 
   test("a request for a modality it cannot serve is refused by name", async () => {

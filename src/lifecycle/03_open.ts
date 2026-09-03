@@ -37,16 +37,16 @@ export const openSession = async (
     return err(abortFailure(options.signal));
 
   const events = new ContextEvents();
-  const connected = await backend.connect({
+  const modelResult = await backend.connect({
     request,
     session: options ?? {},
     reportProgress,
     reportOverflow: () => events.announce(),
   });
-  if (!connected.ok) return connected;
+  if (!modelResult.ok) return modelResult;
 
   const state: SessionState = {
-    model: connected.value,
+    model: modelResult.value,
     lifetime: createSessionLifetime(),
     events,
     transcript: createTranscript(options?.history),

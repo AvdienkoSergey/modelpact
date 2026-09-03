@@ -83,12 +83,12 @@ export type FailureKind = AiFailure["kind"];
  * `invalid-input`.
  */
 export function failureFrom(error: unknown): AiFailure {
-  const name = error instanceof Error ? error.name : "";
+  const errorName = error instanceof Error ? error.name : "";
   const detail = error instanceof Error ? error.message : String(error);
-  const fromDom =
+  const isDomException =
     typeof DOMException !== "undefined" && error instanceof DOMException;
 
-  switch (name) {
+  switch (errorName) {
     case "AbortError":
       return { kind: "aborted", reason: detail, cause: error };
     case "InvalidStateError":
@@ -115,7 +115,7 @@ export function failureFrom(error: unknown): AiFailure {
       // frame throws a native one under the same name. Only the former means
       // "the caller sent nonsense". A provider should still convert its own
       // parse errors where they happen rather than let them reach here.
-      return fromDom
+      return isDomException
         ? { kind: "invalid-input", detail, cause: error }
         : { kind: "failed", detail, cause: error };
     case "TypeError":

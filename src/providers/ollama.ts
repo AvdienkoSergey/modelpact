@@ -83,7 +83,7 @@ interface Endpoint {
   readonly call: typeof globalThis.fetch;
 }
 
-const endpointOf = (config: OllamaConfig): Endpoint => ({
+const toEndpoint = (config: OllamaConfig): Endpoint => ({
   host: config.host ?? DEFAULTS.host,
   // Bound, and not optional: in a browser `fetch` is a method of the window and
   // throws `TypeError: Illegal invocation` once it is held on its own. Node
@@ -107,8 +107,8 @@ const postTo = (
 /** The daemon says what went wrong in the body; a status alone would lose it. */
 const failureFromResponse = async (response: Response): Promise<AiFailure> => {
   const text = await response.text().catch(() => "");
-  const said = asString(asRecord(parseJson(text))?.error);
-  const detail = said ?? `${response.status} from the daemon`;
+  const errorText = asString(asRecord(parseJson(text))?.error);
+  const detail = errorText ?? `${response.status} from the daemon`;
   // 400 is the daemon reading the request and refusing it, which is a bug on
   // this side. Everything else is the daemon's own trouble.
   return response.status === 400
@@ -119,23 +119,25 @@ const failureFromResponse = async (response: Response): Promise<AiFailure> => {
 const listModels = async (endpoint: Endpoint): Promise<readonly string[]> => {
   const response = await endpoint.call(`${endpoint.host}/api/tags`);
   if (!response.ok) return [];
-  const listed = asRecord(await response.json().catch(() => null))?.models;
-  if (!Array.isArray(listed)) return [];
-  const names = listed.map((one) => asString(asRecord(one)?.model));
+  const listedModels = asRecord(
+    await response.json().catch(() => null),
+  )?.models;
+  if (!Array.isArray(listedModels)) return [];
+  const names = listedModels.map((entry) => asString(asRecord(entry)?.model));
   return names.filter((name): name is string => name !== null);
 };
 
 const getAvailability = async (config: OllamaConfig): Promise<Availability> => {
-  const endpoint = endpointOf(config);
-  let downloaded: readonly string[];
+  const endpoint = toEndpoint(config);
+  let downloadedModels: readonly string[];
   try {
-    downloaded = await listModels(endpoint);
+    downloadedModels = await listModels(endpoint);
   } catch (cause) {
     // Nothing answering is not a failed request, it is no Ollama here.
     return { kind: "unavailable", reason: { kind: "unsupported", cause } };
   }
-  const present = downloaded.includes(config.model);
-  return present
+  const isDownloaded = downloadedModels.includes(config.model);
+  return isDownloaded
     ? { kind: "ready" }
     : { kind: "needs-download", started: false };
 };
@@ -147,34 +149,34 @@ const getAvailability = async (config: OllamaConfig): Promise<Availability> => {
  * makes the last report a 1, since that line carries no numbers.
  */
 const readPullProgress = (
-  report: (loaded: Fraction) => void,
+  reportProgress: (progress: Fraction) => void,
 ): TransformStream<string, string> => {
   const layers = new Map<string, { total: number; completed: number }>();
   return new TransformStream({
     transform: (line, controller) => {
-      const parsed = asRecord(parseJson(line));
-      if (parsed === null) return;
-      const failed = asString(parsed.error);
-      if (failed !== null)
-        throw new AiError({ kind: "failed", detail: failed });
+      const parsedLine = asRecord(parseJson(line));
+      if (parsedLine === null) return;
+      const errorText = asString(parsedLine.error);
+      if (errorText !== null)
+        throw new AiError({ kind: "failed", detail: errorText });
 
-      const digest = asString(parsed.digest);
-      const total = asNumber(parsed.total);
-      const completed = asNumber(parsed.completed) ?? 0;
+      const digest = asString(parsedLine.digest);
+      const total = asNumber(parsedLine.total);
+      const completed = asNumber(parsedLine.completed) ?? 0;
       if (digest !== null && total !== null && total > 0) {
         layers.set(digest, { total, completed });
       }
 
-      const done = asString(parsed.status) === "success";
-      const share = done ? 1 : shareOf(layers);
-      const at = fraction(share);
-      if (at !== null) report(at);
+      const isDone = asString(parsedLine.status) === "success";
+      const pulledShare = isDone ? 1 : getPulledShare(layers);
+      const progress = fraction(pulledShare);
+      if (progress !== null) reportProgress(progress);
       controller.enqueue(line);
     },
   });
 };
 
-const shareOf = (
+const getPulledShare = (
   layers: Map<string, { total: number; completed: number }>,
 ): number => {
   let total = 0;
@@ -189,7 +191,7 @@ const shareOf = (
 const pullModel = async (
   endpoint: Endpoint,
   model: string,
-  report: (loaded: Fraction) => void,
+  reportProgress: (progress: Fraction) => void,
 ): Promise<Result<null, AiFailure>> => {
   const response = await postTo(endpoint, "/api/pull", { model, stream: true });
   if (!response.ok) return err(await failureFromResponse(response));
@@ -199,14 +201,14 @@ const pullModel = async (
   const lines = response.body
     .pipeThrough(new TextDecoderStream())
     .pipeThrough(ndjsonLines())
-    .pipeThrough(readPullProgress(report));
+    .pipeThrough(readPullProgress(reportProgress));
   const reader = lines.getReader();
   try {
     // Read to the end: the transform above is where the reporting happens, and
     // the body is not finished until it stops yielding.
     for (;;) {
-      const next = await reader.read();
-      if (next.done) return ok(null);
+      const chunk = await reader.read();
+      if (chunk.done) return ok(null);
     }
   } catch (error) {
     return err(
@@ -234,7 +236,7 @@ class OllamaModel implements Model {
   #usedTokens = 0;
 
   constructor(config: OllamaConfig, options: ConnectOptions) {
-    this.#endpoint = endpointOf(config);
+    this.#endpoint = toEndpoint(config);
     this.#model = config.model;
     this.#contextWindow = config.contextWindow ?? DEFAULTS.contextWindow;
     this.#system = options.session.system;
@@ -244,9 +246,9 @@ class OllamaModel implements Model {
     input: string,
     request: GenerateRequest,
   ): Promise<Result<ReadableStream<string>, AiFailure>> => {
-    const response = await this.#chat(input, request, true);
-    if (!response.ok) return response;
-    const body = response.value.body;
+    const responseResult = await this.#chat(input, request, true);
+    if (!responseResult.ok) return responseResult;
+    const body = responseResult.value.body;
     if (body === null)
       return err({ kind: "failed", detail: "the chat sent no body" });
 
@@ -261,16 +263,18 @@ class OllamaModel implements Model {
     input: string,
     request: GenerateRequest,
   ): Promise<Result<string, AiFailure>> => {
-    const response = await this.#chat(input, request, false);
-    if (!response.ok) return response;
-    const parsed = asRecord(await response.value.json().catch(() => null));
-    if (parsed === null)
+    const responseResult = await this.#chat(input, request, false);
+    if (!responseResult.ok) return responseResult;
+    const parsedBody = asRecord(
+      await responseResult.value.json().catch(() => null),
+    );
+    if (parsedBody === null)
       return err({ kind: "failed", detail: "the chat sent no JSON" });
-    const said = asString(asRecord(parsed.message)?.content);
-    if (said === null)
+    const answerText = asString(asRecord(parsedBody.message)?.content);
+    if (answerText === null)
       return err({ kind: "failed", detail: "the chat sent no message" });
-    this.#charge(parsed);
-    return ok(said);
+    this.#charge(parsedBody);
+    return ok(answerText);
   };
 
   readonly usage = (): ContextUsage => {
@@ -289,8 +293,8 @@ class OllamaModel implements Model {
     request: GenerateRequest,
     stream: boolean,
   ): Promise<Result<Response, AiFailure>> {
-    const asked: AiMessage = { role: "user", content: input };
-    const conversation = [...request.history, asked];
+    const askedMessage: AiMessage = { role: "user", content: input };
+    const conversation = [...request.history, askedMessage];
     const messages =
       this.#system === undefined
         ? conversation
@@ -317,13 +321,13 @@ class OllamaModel implements Model {
   #readChatLines(): TransformStream<string, string> {
     return new TransformStream({
       transform: (line, controller) => {
-        const parsed = asRecord(parseJson(line));
-        if (parsed === null) return;
-        const failed = asString(parsed.error);
-        if (failed !== null)
-          throw new AiError({ kind: "failed", detail: failed });
-        if (parsed.done === true) this.#charge(parsed);
-        const delta = asString(asRecord(parsed.message)?.content) ?? "";
+        const parsedLine = asRecord(parseJson(line));
+        if (parsedLine === null) return;
+        const errorText = asString(parsedLine.error);
+        if (errorText !== null)
+          throw new AiError({ kind: "failed", detail: errorText });
+        if (parsedLine.done === true) this.#charge(parsedLine);
+        const delta = asString(asRecord(parsedLine.message)?.content) ?? "";
         if (delta !== "") controller.enqueue(delta);
       },
     });
@@ -334,10 +338,10 @@ class OllamaModel implements Model {
    * counts together are what the window holds after this turn. Summing across
    * turns would count the history once per turn.
    */
-  #charge(finished: Record<string, unknown>): void {
-    const prompt = asNumber(finished.prompt_eval_count) ?? 0;
-    const answer = asNumber(finished.eval_count) ?? 0;
-    this.#usedTokens = prompt + answer;
+  #charge(finishedLine: Record<string, unknown>): void {
+    const promptTokens = asNumber(finishedLine.prompt_eval_count) ?? 0;
+    const answerTokens = asNumber(finishedLine.eval_count) ?? 0;
+    this.#usedTokens = promptTokens + answerTokens;
   }
 }
 
@@ -347,20 +351,20 @@ const connectOllama = async (
   config: OllamaConfig,
   options: ConnectOptions,
 ): Promise<Result<Model, AiFailure>> => {
-  const endpoint = endpointOf(config);
-  let downloaded: readonly string[];
+  const endpoint = toEndpoint(config);
+  let downloadedModels: readonly string[];
   try {
-    downloaded = await listModels(endpoint);
+    downloadedModels = await listModels(endpoint);
   } catch (cause) {
     return err({ kind: "unsupported", cause });
   }
-  if (!downloaded.includes(config.model)) {
-    const pulled = await pullModel(
+  if (!downloadedModels.includes(config.model)) {
+    const pullResult = await pullModel(
       endpoint,
       config.model,
       options.reportProgress,
     );
-    if (!pulled.ok) return pulled;
+    if (!pullResult.ok) return pullResult;
   }
   return ok(new OllamaModel(config, options));
 };

@@ -21,7 +21,9 @@ export function abortFailure(signal: AbortSignal): AiFailure {
  * survives either way — it propagates by identity, not by copy.
  */
 export const linkSignals = (
-  lifetime: AbortSignal,
-  extra?: AbortSignal,
+  sessionSignal: AbortSignal,
+  callerSignal?: AbortSignal,
 ): AbortSignal =>
-  extra === undefined ? lifetime : AbortSignal.any([lifetime, extra]);
+  callerSignal === undefined
+    ? sessionSignal
+    : AbortSignal.any([sessionSignal, callerSignal]);

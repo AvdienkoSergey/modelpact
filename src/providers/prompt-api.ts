@@ -50,24 +50,27 @@ import { createProvider } from "./create.js";
  * `typeof` and not a bare read: outside a page the name is not declared, and
  * naming it there throws rather than answering undefined.
  */
-const platformApi = (): typeof LanguageModel | null =>
+const getPlatformApi = (): typeof LanguageModel | null =>
   typeof LanguageModel === "undefined" ? null : LanguageModel;
 
-const expectationsOf = (
-  asked: ModelRequest["inputs"],
+const toExpectations = (
+  askedExpectations: ModelRequest["inputs"],
 ): LanguageModelExpected[] | undefined => {
-  if (asked === undefined || asked.length === 0) return undefined;
-  return asked.map((one) => ({
-    type: one.type,
-    ...(one.languages === undefined ? {} : { languages: [...one.languages] }),
+  if (askedExpectations === undefined || askedExpectations.length === 0)
+    return undefined;
+  return askedExpectations.map((expectation) => ({
+    type: expectation.type,
+    ...(expectation.languages === undefined
+      ? {}
+      : { languages: [...expectation.languages] }),
   }));
 };
 
-const coreOptionsOf = (
+const toCoreOptions = (
   request: ModelRequest,
 ): LanguageModelCreateCoreOptions => {
-  const inputs = expectationsOf(request.inputs);
-  const outputs = expectationsOf(request.outputs);
+  const inputs = toExpectations(request.inputs);
+  const outputs = toExpectations(request.outputs);
   return {
     ...(inputs === undefined ? {} : { expectedInputs: inputs }),
     ...(outputs === undefined ? {} : { expectedOutputs: outputs }),
@@ -82,8 +85,8 @@ type SpecAvailability = Awaited<ReturnType<typeof LanguageModel.availability>>;
  * `downloadable` are one branch here and differ only in `started`, which is the
  * question a caller actually has: is someone already fetching this.
  */
-const availabilityOf = (said: SpecAvailability): Availability => {
-  switch (said) {
+const toAvailability = (specAvailability: SpecAvailability): Availability => {
+  switch (specAvailability) {
     case "available":
       return { kind: "ready" };
     case "downloadable":
@@ -103,12 +106,12 @@ const availabilityOf = (said: SpecAvailability): Availability => {
 const getAvailability = async (
   request: ModelRequest,
 ): Promise<Availability> => {
-  const api = platformApi();
+  const api = getPlatformApi();
   if (api === null)
     return { kind: "unavailable", reason: { kind: "unsupported" } };
   try {
-    const said = await api.availability(coreOptionsOf(request));
-    return availabilityOf(said);
+    const specAvailability = await api.availability(toCoreOptions(request));
+    return toAvailability(specAvailability);
   } catch (error) {
     // `NotAllowedError` for the permissions policy, `InvalidStateError` for a
     // document that is not fully active: both are refusals, not crashes.
@@ -117,17 +120,18 @@ const getAvailability = async (
 };
 
 /** System first or not at all, which is what the patched tuple type says too. */
-const initialPromptsOf = (
+const toInitialPrompts = (
   session: SessionOptions,
 ): LanguageModelCreateOptions["initialPrompts"] => {
-  const said: LanguageModelMessage[] = (session.history ?? []).map(
+  const historyPrompts: LanguageModelMessage[] = (session.history ?? []).map(
     (message) => ({ role: message.role, content: message.content }),
   );
-  if (session.system === undefined) return said.length === 0 ? undefined : said;
-  return [{ role: "system", content: session.system }, ...said];
+  if (session.system === undefined)
+    return historyPrompts.length === 0 ? undefined : historyPrompts;
+  return [{ role: "system", content: session.system }, ...historyPrompts];
 };
 
-const promptOptionsOf = (
+const toPromptOptions = (
   request: GenerateRequest,
 ): LanguageModelPromptOptions =>
   request.schema === undefined
@@ -140,20 +144,22 @@ const promptOptionsOf = (
  * declarations promise the new names on a version that has only the old.
  */
 const readUsage = (session: LanguageModel): ContextUsage => {
-  const held = session as unknown as Record<string, unknown>;
-  const used = numberAt(held, "contextUsage", "inputUsage");
-  const window = numberAt(held, "contextWindow", "inputQuota");
-  if (used === null || window === null) return { kind: "unknown" };
-  const counted = tokens(used);
-  return counted === null ? { kind: "unknown" } : contextUsage(counted, window);
+  const sessionFields = session as unknown as Record<string, unknown>;
+  const used = readNumber(sessionFields, "contextUsage", "inputUsage");
+  const windowTokens = readNumber(sessionFields, "contextWindow", "inputQuota");
+  if (used === null || windowTokens === null) return { kind: "unknown" };
+  const usedTokens = tokens(used);
+  return usedTokens === null
+    ? { kind: "unknown" }
+    : contextUsage(usedTokens, windowTokens);
 };
 
-const numberAt = (
-  held: Record<string, unknown>,
-  current: string,
-  older: string,
+const readNumber = (
+  sessionFields: Record<string, unknown>,
+  currentName: string,
+  olderName: string,
 ): number | null => {
-  const value = held[current] ?? held[older];
+  const value = sessionFields[currentName] ?? sessionFields[olderName];
   return typeof value === "number" ? value : null;
 };
 
@@ -171,11 +177,11 @@ class PromptApiModel implements Model {
     try {
       const deltas = this.#session.promptStreaming(
         input,
-        promptOptionsOf(request),
+        toPromptOptions(request),
       );
       return Promise.resolve(ok(deltas));
     } catch (error) {
-      return Promise.resolve(err(this.#refine(error)));
+      return Promise.resolve(err(this.#refineFailure(error)));
     }
   };
 
@@ -184,10 +190,13 @@ class PromptApiModel implements Model {
     request: GenerateRequest,
   ): Promise<Result<string, AiFailure>> => {
     try {
-      const said = await this.#session.prompt(input, promptOptionsOf(request));
-      return ok(said);
+      const answerText = await this.#session.prompt(
+        input,
+        toPromptOptions(request),
+      );
+      return ok(answerText);
     } catch (error) {
-      return err(this.#refine(error));
+      return err(this.#refineFailure(error));
     }
   };
 
@@ -201,7 +210,7 @@ class PromptApiModel implements Model {
    * `QuotaExceededError` carries no measurement, and the generic mapping says
    * so; holding the session is what lets this one attach the reading.
    */
-  #refine(error: unknown): AiFailure {
+  #refineFailure(error: unknown): AiFailure {
     const failure = failureFrom(error);
     return failure.kind === "context-overflow"
       ? { ...failure, usage: this.usage() }
@@ -212,13 +221,13 @@ class PromptApiModel implements Model {
 const connectPromptApi = async (
   options: ConnectOptions,
 ): Promise<Result<Model, AiFailure>> => {
-  const api = platformApi();
+  const api = getPlatformApi();
   if (api === null) return err({ kind: "unsupported" });
 
-  const initialPrompts = initialPromptsOf(options.session);
+  const initialPrompts = toInitialPrompts(options.session);
   try {
     const session = await api.create({
-      ...coreOptionsOf(options.request),
+      ...toCoreOptions(options.request),
       ...(initialPrompts === undefined ? {} : { initialPrompts }),
       ...(options.session.signal === undefined
         ? {}
@@ -228,10 +237,10 @@ const connectPromptApi = async (
       // own is what applies the never-decreasing rule to every backend alike.
       monitor: (monitor) => {
         monitor.ondownloadprogress = (event) => {
-          const at = fraction(
+          const progress = fraction(
             event.total === 0 ? 0 : event.loaded / event.total,
           );
-          if (at !== null) options.reportProgress(at);
+          if (progress !== null) options.reportProgress(progress);
         };
       },
     });

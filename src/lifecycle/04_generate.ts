@@ -8,7 +8,7 @@
  */
 
 import { abortFailure } from "../helpers/abort.js";
-import type { Generating, RunningTurn } from "../helpers/lifetime.js";
+import type { GeneratingCall, RunningTurn } from "../helpers/lifetime.js";
 import { err, ok, type Result } from "../types/foundations.js";
 import { AiError, failureFrom, type AiFailure } from "../types/failures.js";
 import type { GenerateOptions } from "../types/session.js";
@@ -61,12 +61,12 @@ const toAiError = (error: unknown): AiError =>
 /** Every refusal a generating call owes is `begin`'s to make; past it, the session is held. */
 const startTurn = (
   state: SessionState,
-  call: Generating,
+  callName: GeneratingCall,
   options?: GenerateOptions,
 ): Result<StartedTurn, AiFailure> => {
-  const begun = state.lifetime.begin(call, options?.signal);
-  if (!begun.ok) return begun;
-  const turn = begun.value;
+  const turnResult = state.lifetime.begin(callName, options?.signal);
+  if (!turnResult.ok) return turnResult;
+  const turn = turnResult.value;
   const request = toGenerateRequest(state, turn.signal, options);
   return ok({ turn, request });
 };
@@ -82,24 +82,24 @@ const releaseReader = (reader: ReadableStreamDefaultReader<string>): void => {
  * source throws, mapped through `failureFrom`.
  */
 const guardStream = (
-  source: ReadableStream<string>,
+  sourceStream: ReadableStream<string>,
   signal: AbortSignal,
   hooks: TurnHooks,
 ): ReadableStream<string> => {
-  const reader = source.getReader();
-  const parts: string[] = [];
+  const reader = sourceStream.getReader();
+  const answerParts: string[] = [];
   return new ReadableStream<string>({
     pull: async (controller) => {
       try {
-        const next = await reader.read();
+        const chunk = await reader.read();
         if (signal.aborted) throw new AiError(abortFailure(signal));
-        if (next.done) {
-          hooks.finish(parts.join(""));
+        if (chunk.done) {
+          hooks.finish(answerParts.join(""));
           controller.close();
           return;
         }
-        parts.push(next.value);
-        controller.enqueue(next.value);
+        answerParts.push(chunk.value);
+        controller.enqueue(chunk.value);
       } catch (error) {
         hooks.abandon();
         releaseReader(reader);
@@ -127,21 +127,21 @@ const callGenerate = async (
 
 const startStream = async (
   state: SessionState,
-  call: Generating,
+  callName: GeneratingCall,
   input: string,
   options?: GenerateOptions,
 ): Promise<Result<ReadableStream<string>, AiFailure>> => {
-  const started = startTurn(state, call, options);
-  if (!started.ok) return started;
-  const { turn, request } = started.value;
-  const generated = await callGenerate(state.model, input, request);
-  if (!generated.ok) {
+  const startedTurnResult = startTurn(state, callName, options);
+  if (!startedTurnResult.ok) return startedTurnResult;
+  const { turn, request } = startedTurnResult.value;
+  const streamResult = await callGenerate(state.model, input, request);
+  if (!streamResult.ok) {
     state.lifetime.end(turn);
-    return generated;
+    return streamResult;
   }
   // The token travels into the hooks, so a stream abandoned long ago cannot
   // end the turn running when its `cancel` finally arrives.
-  const guarded = guardStream(generated.value, turn.signal, {
+  const guardedStream = guardStream(streamResult.value, turn.signal, {
     finish: (answer) => {
       completeTurn(state, input, answer);
       state.lifetime.end(turn);
@@ -150,19 +150,19 @@ const startStream = async (
       state.lifetime.end(turn);
     },
   });
-  return ok(guarded);
+  return ok(guardedStream);
 };
 
 const drainStream = async (
   stream: ReadableStream<string>,
 ): Promise<Result<string, AiFailure>> => {
   const reader = stream.getReader();
-  const parts: string[] = [];
+  const answerParts: string[] = [];
   try {
     for (;;) {
-      const next = await reader.read();
-      if (next.done) return ok(parts.join(""));
-      parts.push(next.value);
+      const chunk = await reader.read();
+      if (chunk.done) return ok(answerParts.join(""));
+      answerParts.push(chunk.value);
     }
   } catch (error) {
     return err(toFailure(error));
@@ -175,15 +175,15 @@ const promptWhole = async (
   input: string,
   options?: GenerateOptions,
 ): Promise<Result<string, AiFailure>> => {
-  const started = startTurn(state, "prompt", options);
-  if (!started.ok) return started;
-  const { turn, request } = started.value;
+  const startedTurnResult = startTurn(state, "prompt", options);
+  if (!startedTurnResult.ok) return startedTurnResult;
+  const { turn, request } = startedTurnResult.value;
   try {
-    const answer = await generateWhole(input, request);
-    if (!answer.ok) return answer;
+    const answerResult = await generateWhole(input, request);
+    if (!answerResult.ok) return answerResult;
     if (turn.signal.aborted) return err(abortFailure(turn.signal));
-    completeTurn(state, input, answer.value);
-    return answer;
+    completeTurn(state, input, answerResult.value);
+    return answerResult;
   } catch (error) {
     return err(toFailure(error));
   } finally {
@@ -199,10 +199,10 @@ export const prompt = async (
   const generateWhole = state.model.generateWhole;
   if (generateWhole !== undefined)
     return promptWhole(state, generateWhole, input, options);
-  const started = await startStream(state, "prompt", input, options);
-  if (!started.ok) return started;
-  const answer = await drainStream(started.value);
-  return answer;
+  const streamResult = await startStream(state, "prompt", input, options);
+  if (!streamResult.ok) return streamResult;
+  const answerResult = await drainStream(streamResult.value);
+  return answerResult;
 };
 
 export const promptStream = (

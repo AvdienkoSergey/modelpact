@@ -23,24 +23,25 @@ const MODEL = "granite4:350m";
 /** Nothing listens on port 1, and refusing is quick. */
 const NOWHERE = "http://127.0.0.1:1";
 
-const daemonAnswers = async (): Promise<boolean> => {
+const isDaemonAnswering = async (): Promise<boolean> => {
   try {
     const response = await fetch(`${HOST}/api/tags`, {
       signal: AbortSignal.timeout(2_000),
     });
     if (!response.ok) return false;
-    const listed: unknown = await response.json();
-    const models = (listed as { models?: { model?: string }[] }).models ?? [];
-    return models.some((one) => one.model === MODEL);
+    const listedBody: unknown = await response.json();
+    const models =
+      (listedBody as { models?: { model?: string }[] }).models ?? [];
+    return models.some((entry) => entry.model === MODEL);
   } catch {
     return false;
   }
 };
 
-const reachable = await daemonAnswers();
+const isReachable = await isDaemonAnswering();
 
 describeContract("ollama", (scenario) => {
-  if (!reachable) return null;
+  if (!isReachable) return null;
   switch (scenario) {
     case "ready":
       return makeOllamaProvider({ model: MODEL, host: HOST });
@@ -61,43 +62,45 @@ describeContract("ollama", (scenario) => {
 });
 
 /** `String(request)` is `[object Object]`; the url lives in one of three places. */
-const urlOf = (input: RequestInfo | URL): string => {
+const toUrl = (input: RequestInfo | URL): string => {
   if (typeof input === "string") return input;
   return input instanceof URL ? input.href : input.url;
 };
 
 /** Everything this backend sends is a JSON string, and nothing else is read. */
-const sentBody = (init: RequestInit | undefined): Record<string, unknown> =>
+const readSentBody = (
+  init: RequestInit | undefined,
+): Record<string, unknown> =>
   typeof init?.body === "string"
     ? (JSON.parse(init.body) as Record<string, unknown>)
     : {};
 
 /** A daemon made of strings: each call answers from the first matching rule. */
-const daemonOf =
+const makeDaemon =
   (
     routes: Record<string, (init: RequestInit | undefined) => Response>,
   ): NonNullable<OllamaConfig["fetch"]> =>
   (input, init) => {
-    const url = urlOf(input);
-    for (const [path, answer] of Object.entries(routes)) {
-      if (url.includes(path)) return Promise.resolve(answer(init));
+    const url = toUrl(input);
+    for (const [path, respond] of Object.entries(routes)) {
+      if (url.includes(path)) return Promise.resolve(respond(init));
     }
     return Promise.reject(new Error(`nothing routed for ${url}`));
   };
 
-const jsonOf = (body: unknown): Response =>
+const makeJsonResponse = (body: unknown): Response =>
   new Response(JSON.stringify(body), {
     status: 200,
     headers: { "content-type": "application/json" },
   });
 
-const ndjsonOf = (...lines: unknown[]): Response =>
+const makeNdjsonResponse = (...lines: unknown[]): Response =>
   new Response(lines.map((line) => `${JSON.stringify(line)}\n`).join(""), {
     status: 200,
   });
 
-const tagsOf = (...models: string[]): Response =>
-  jsonOf({ models: models.map((model) => ({ model })) });
+const makeTagsResponse = (...models: string[]): Response =>
+  makeJsonResponse({ models: models.map((model) => ({ model })) });
 
 /**
  * Both shapes the daemon has, chosen the way it chooses: `stream: true` is
@@ -105,33 +108,37 @@ const tagsOf = (...models: string[]): Response =>
  * object. A stub that answered the same either way would hide which of
  * `generate` and `generateWhole` the lifecycle took.
  */
-const chatOf =
+const makeChatResponse =
   (...deltas: string[]) =>
   (init: RequestInit | undefined): Response => {
     const counts = { prompt_eval_count: 30, eval_count: deltas.length };
-    const whole = {
+    const wholeBody = {
       message: { content: deltas.join("") },
       done: true,
       ...counts,
     };
-    if (sentBody(init).stream !== true) return jsonOf(whole);
-    return ndjsonOf(
+    if (readSentBody(init).stream !== true) return makeJsonResponse(wholeBody);
+    return makeNdjsonResponse(
       ...deltas.map((content) => ({ message: { content }, done: false })),
       { message: { content: "" }, done: true, ...counts },
     );
   };
 
-const stubbed = (
+const makeStubbedProvider = (
   routes: Record<string, (init: RequestInit | undefined) => Response>,
-) => makeOllamaProvider({ model: MODEL, host: HOST, fetch: daemonOf(routes) });
+) =>
+  makeOllamaProvider({ model: MODEL, host: HOST, fetch: makeDaemon(routes) });
 
-const sessionOf = async (provider: ReturnType<typeof stubbed>) => {
+const mustOpenSession = async (
+  provider: ReturnType<typeof makeStubbedProvider>,
+) => {
   const access = await provider.access();
   if (access.kind !== "ready")
     throw new Error(`expected ready, got ${access.kind}`);
-  const opened = await access.open();
-  if (!opened.ok) throw new Error(`open refused: ${opened.error.kind}`);
-  return opened.value;
+  const sessionResult = await access.open();
+  if (!sessionResult.ok)
+    throw new Error(`open refused: ${sessionResult.error.kind}`);
+  return sessionResult.value;
 };
 
 describe("ollama without a daemon", () => {
@@ -144,16 +151,18 @@ describe("ollama without a daemon", () => {
   });
 
   test("a model the daemon does not have needs downloading", async () => {
-    const provider = stubbed({ "/api/tags": () => tagsOf("something:else") });
+    const provider = makeStubbedProvider({
+      "/api/tags": () => makeTagsResponse("something:else"),
+    });
     const access = await provider.access();
     expect(access.kind).toBe("needs-download");
   });
 
   test("the download reports progress, reaches one, and opens", async () => {
-    const provider = stubbed({
-      "/api/tags": () => tagsOf("something:else"),
+    const provider = makeStubbedProvider({
+      "/api/tags": () => makeTagsResponse("something:else"),
       "/api/pull": () =>
-        ndjsonOf(
+        makeNdjsonResponse(
           { status: "pulling manifest" },
           { status: "pulling a", digest: "a", total: 100, completed: 40 },
           { status: "pulling a", digest: "a", total: 100, completed: 100 },
@@ -163,27 +172,27 @@ describe("ollama without a daemon", () => {
           { status: "pulling b", digest: "b", total: 100, completed: 100 },
           { status: "success" },
         ),
-      "/api/chat": chatOf("done"),
+      "/api/chat": makeChatResponse("done"),
     });
 
     const access = await provider.access();
     if (access.kind !== "needs-download")
       throw new Error("expected a download");
-    const seen: number[] = [];
-    const opened = await access.open((monitor) => {
-      monitor.ondownloadprogress = (event) => seen.push(event.loaded);
+    const seenProgress: number[] = [];
+    const sessionResult = await access.open((monitor) => {
+      monitor.ondownloadprogress = (event) => seenProgress.push(event.loaded);
     });
 
-    expect(seen.length).toBeGreaterThan(1);
-    expect(seen).toEqual([...seen].sort((a, b) => a - b));
-    expect(seen.at(-1)).toBe(1);
-    expect(opened.ok).toBe(true);
-    if (opened.ok) opened.value.close();
+    expect(seenProgress.length).toBeGreaterThan(1);
+    expect(seenProgress).toEqual([...seenProgress].sort((a, b) => a - b));
+    expect(seenProgress.at(-1)).toBe(1);
+    expect(sessionResult.ok).toBe(true);
+    if (sessionResult.ok) sessionResult.value.close();
   });
 
   test("a refused pull is a failure, not a session", async () => {
-    const provider = stubbed({
-      "/api/tags": () => tagsOf("something:else"),
+    const provider = makeStubbedProvider({
+      "/api/tags": () => makeTagsResponse("something:else"),
       "/api/pull": () =>
         new Response(JSON.stringify({ error: "file does not exist" }), {
           status: 500,
@@ -192,51 +201,54 @@ describe("ollama without a daemon", () => {
     const access = await provider.access();
     if (access.kind !== "needs-download")
       throw new Error("expected a download");
-    const opened = await access.open(() => undefined);
-    expect(opened.ok).toBe(false);
-    if (opened.ok) return;
-    expect(opened.error.kind).toBe("failed");
-    if (opened.error.kind === "failed")
-      expect(opened.error.detail).toContain("file does not exist");
+    const sessionResult = await access.open(() => undefined);
+    expect(sessionResult.ok).toBe(false);
+    if (sessionResult.ok) return;
+    expect(sessionResult.error.kind).toBe("failed");
+    if (sessionResult.error.kind === "failed")
+      expect(sessionResult.error.detail).toContain("file does not exist");
   });
 
   test("the daemon's own words survive the mapping", async () => {
-    const session = await sessionOf(
-      stubbed({
-        "/api/tags": () => tagsOf(MODEL),
+    const session = await mustOpenSession(
+      makeStubbedProvider({
+        "/api/tags": () => makeTagsResponse(MODEL),
         "/api/chat": () =>
           new Response(JSON.stringify({ error: "model is required" }), {
             status: 400,
           }),
       }),
     );
-    const answer = await session.prompt("hello");
-    expect(answer.ok).toBe(false);
-    if (answer.ok) return;
+    const answerResult = await session.prompt("hello");
+    expect(answerResult.ok).toBe(false);
+    if (answerResult.ok) return;
     // 400 is this side reading badly; the detail is what the daemon said.
-    expect(answer.error.kind).toBe("invalid-input");
-    if (answer.error.kind === "invalid-input")
-      expect(answer.error.detail).toBe("model is required");
+    expect(answerResult.error.kind).toBe("invalid-input");
+    if (answerResult.error.kind === "invalid-input")
+      expect(answerResult.error.detail).toBe("model is required");
   });
 
   test("the whole conversation goes out, with this turn last", async () => {
-    const sent: unknown[] = [];
+    const sentBodies: unknown[] = [];
     const provider = makeOllamaProvider({
       model: MODEL,
       host: HOST,
       fetch: (input, init) => {
-        const url = urlOf(input);
-        if (url.includes("/api/tags")) return Promise.resolve(tagsOf(MODEL));
-        sent.push(sentBody(init));
-        return Promise.resolve(chatOf("ok")(init));
+        const url = toUrl(input);
+        if (url.includes("/api/tags"))
+          return Promise.resolve(makeTagsResponse(MODEL));
+        sentBodies.push(readSentBody(init));
+        return Promise.resolve(makeChatResponse("ok")(init));
       },
     });
 
-    const session = await sessionOf(provider);
+    const session = await mustOpenSession(provider);
     await session.prompt("first");
     await session.prompt("second");
-    const second = sent[1] as { messages: { role: string; content: string }[] };
-    expect(second.messages).toEqual([
+    const secondBody = sentBodies[1] as {
+      messages: { role: string; content: string }[];
+    };
+    expect(secondBody.messages).toEqual([
       { role: "user", content: "first" },
       { role: "assistant", content: "ok" },
       { role: "user", content: "second" },
@@ -245,41 +257,42 @@ describe("ollama without a daemon", () => {
   });
 
   test("a schema travels as `format`, which constrains decoding", async () => {
-    const sent: Record<string, unknown>[] = [];
+    const sentBodies: Record<string, unknown>[] = [];
     const provider = makeOllamaProvider({
       model: MODEL,
       host: HOST,
       fetch: (input, init) => {
-        const url = urlOf(input);
-        if (url.includes("/api/tags")) return Promise.resolve(tagsOf(MODEL));
-        sent.push(sentBody(init));
-        return Promise.resolve(chatOf('{"city":"Paris"}')(init));
+        const url = toUrl(input);
+        if (url.includes("/api/tags"))
+          return Promise.resolve(makeTagsResponse(MODEL));
+        sentBodies.push(readSentBody(init));
+        return Promise.resolve(makeChatResponse('{"city":"Paris"}')(init));
       },
     });
 
-    const session = await sessionOf(provider);
+    const session = await mustOpenSession(provider);
     await session.prompt("Name the capital of France.", {
       schema: CONTRACT_SCHEMA,
     });
-    expect(sent[0]?.format).toEqual(CONTRACT_SCHEMA);
+    expect(sentBodies[0]?.format).toEqual(CONTRACT_SCHEMA);
     session.close();
   });
 
   test("the counts are what the window holds, not a running sum", async () => {
-    const session = await sessionOf(
-      stubbed({
-        "/api/tags": () => tagsOf(MODEL),
-        "/api/chat": chatOf("a", "b"),
+    const session = await mustOpenSession(
+      makeStubbedProvider({
+        "/api/tags": () => makeTagsResponse(MODEL),
+        "/api/chat": makeChatResponse("a", "b"),
       }),
     );
     await session.prompt("first");
-    const first = session.usage();
+    const firstUsage = session.usage();
     await session.prompt("second");
-    const second = session.usage();
+    const secondUsage = session.usage();
     // Both turns report the same counts, and `prompt_eval_count` already holds
     // the history — so the meter repeats rather than doubling.
-    expect(first).toEqual(second);
-    if (first.kind === "bounded") expect(first.used).toBe(32);
+    expect(firstUsage).toEqual(secondUsage);
+    if (firstUsage.kind === "bounded") expect(firstUsage.used).toBe(32);
     session.close();
   });
 });

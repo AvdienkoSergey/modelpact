@@ -37,8 +37,8 @@ export function jsonSchema(value: unknown): JsonSchema | null {
   // that pass every shape check and only fail once the browser tries to read
   // them as a schema. What JSON.parse builds carries `Object.prototype`, and
   // `Object.create(null)` carries none.
-  const proto: unknown = Object.getPrototypeOf(value);
-  return proto === Object.prototype || proto === null
+  const prototype: unknown = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null
     ? (value as JsonSchema)
     : null;
 }
