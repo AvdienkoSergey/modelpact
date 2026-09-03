@@ -52,7 +52,7 @@ const main = async (): Promise<void> => {
     }),
     policy: policyOf(),
     onRoute: (route: string, reason: string) =>
-      stdout.write(`  [${route}: ${reason}]\n`),
+      stdout.write(`\n  [${route}: ${reason}]\n`),
   };
   const access = await createProvider(makeRouterBackend(parts)).access();
   if (access.kind !== "ready") {
