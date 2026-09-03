@@ -1,0 +1,78 @@
+name: Something the contract promises is not happening
+description: A guarantee that is not being kept — a stream, an abort, the record, the meter, a failure kind.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The fastest possible bug report is a failing test against the mock
+        provider. If you have one, paste it below and skip most of this form.
+
+  - type: dropdown
+    id: provider
+    attributes:
+      label: Which provider
+      description: The backend that was answering when it went wrong.
+      options:
+        - mock
+        - prompt-api (Chrome's built-in model)
+        - ollama
+        - webgpu (modelpact-webgpu)
+        - a backend I wrote
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: modelpact version
+      description: "`npm ls modelpact`, or the version in your lockfile."
+      placeholder: 2.0.3
+    validations:
+      required: true
+
+  - type: input
+    id: runtime
+    attributes:
+      label: Where it ran
+      description: Node version, or the browser and its version.
+      placeholder: Node 22.14 · or Chrome 141 on macOS
+    validations:
+      required: true
+
+  - type: textarea
+    id: sent
+    attributes:
+      label: What you sent
+      description: >
+        The calls, in order — the provider you built, the options you opened
+        with, the prompt. Trim the prose; the shape is what matters.
+      render: ts
+      placeholder: |
+        const access = await makeOllamaProvider({ model: "granite4:350m" }).access();
+        if (access.kind !== "ready") return;
+        const opened = await access.open({ system: "Answer in one sentence." });
+        const answer = await opened.value.prompt("…");
+    validations:
+      required: true
+
+  - type: textarea
+    id: happened
+    attributes:
+      label: What happened, and what you expected instead
+      description: >
+        The `kind` of any failure, and the guarantee you were counting on. If a
+        stream errored, the `AiError.failure` is the useful half.
+    validations:
+      required: true
+
+  - type: textarea
+    id: mock
+    attributes:
+      label: Does it happen on the mock provider too?
+      description: >
+        `makeMockProvider()` needs no model and no network. If the same steps
+        misbehave there, it is the lifecycle rather than the backend — say so,
+        and a test against it is the fix's proof.
+    validations:
+      required: false
