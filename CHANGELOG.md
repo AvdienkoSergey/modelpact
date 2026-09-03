@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.7.0](https://github.com/AvdienkoSergey/modelpact/compare/v1.6.0...v1.7.0) (2026-09-03)
+
+
+### Features
+
+* **demo:** a chat that uses every promise the contract makes ([b258f44](https://github.com/AvdienkoSergey/modelpact/commit/b258f443df1600547929d4774778bd4680a43a67))
+* **demo:** the kind aliases where a UI actually wants them ([74fc797](https://github.com/AvdienkoSergey/modelpact/commit/74fc79737eef3511d9bc292352f80d3b71895191))
+* **types:** name the three tag sets, without making them enums ([a67cb51](https://github.com/AvdienkoSergey/modelpact/commit/a67cb51c73f4e3c71608482b256be08e1406cbc2))
+
+
+### Documentation
+
+* **demo:** two screenshots of the chat ([fefdde3](https://github.com/AvdienkoSergey/modelpact/commit/fefdde34fc1ba985c5a6bf12090a5b31af44e8c7))
+* **lifecycle:** the record is carried across a reload, not surviving one ([b7c89ae](https://github.com/AvdienkoSergey/modelpact/commit/b7c89ae45e5f8e0260e2487eca18c3c45ac10685))
+
 ## [1.6.0](https://github.com/AvdienkoSergey/modelpact/compare/v1.5.0...v1.6.0) (2026-09-03)
 
 
