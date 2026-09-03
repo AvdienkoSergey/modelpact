@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.5.0](https://github.com/AvdienkoSergey/modelpact/compare/v1.4.0...v1.5.0) (2026-09-03)
+
+
+### Features
+
+* **providers:** a way in from outside ([44c5e45](https://github.com/AvdienkoSergey/modelpact/commit/44c5e459430ef4a28328906dfb714e5dbaf4fc5c))
+* **providers:** a way in from outside ([68f1ed2](https://github.com/AvdienkoSergey/modelpact/commit/68f1ed2de3318d50ee13a35f79ffa2988e7a0cf4))
+
 ## [1.4.0](https://github.com/AvdienkoSergey/modelpact/compare/v1.3.0...v1.4.0) (2026-09-03)
 
 
