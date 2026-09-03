@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.6.0](https://github.com/AvdienkoSergey/modelpact/compare/v1.5.0...v1.6.0) (2026-09-03)
+
+
+### Features
+
+* **lifecycle:** a record of the conversation that survives a reload ([325e95a](https://github.com/AvdienkoSergey/modelpact/commit/325e95a3fd08e7db0f8748ee8f0365262316a763))
+* **lifecycle:** a record of the conversation that survives a reload ([dd12e09](https://github.com/AvdienkoSergey/modelpact/commit/dd12e0903d171b66e7f0bf0781a884b22e5b0442))
+
 ## [1.5.0](https://github.com/AvdienkoSergey/modelpact/compare/v1.4.0...v1.5.0) (2026-09-03)
 
 
