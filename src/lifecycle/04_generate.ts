@@ -1,6 +1,6 @@
 /**
  * Stage four, once per turn: refuse at the door, hold the session, guard the
- * stream, charge the usage, free the session.
+ * stream, record the turn, free the session.
  *
  * `prompt` is `promptStream` drained, unless the backend has a whole-answer
  * call. Either way a turn cannot leave the session held: every exit from the
@@ -21,25 +21,36 @@ interface StartedTurn {
 }
 
 interface TurnHooks {
-  /** The source ran to its end. */
-  readonly finish: () => void;
+  /** The source ran to its end; `answer` is every delta joined. */
+  readonly finish: (answer: string) => void;
   /** The source was left before its end: error, abort or cancel. */
   readonly abandon: () => void;
 }
 
-/** After a turn has been charged; `events` decides whether this is the overflow. */
-const recordUsage = (state: SessionState): void => {
+/**
+ * The one place a turn counts: the record and the meter move together, so a
+ * turn that reached here is in both and one that did not is in neither.
+ */
+const completeTurn = (
+  state: SessionState,
+  input: string,
+  answer: string,
+): void => {
+  state.transcript.append(input, answer);
   const usage = state.model.usage();
   state.events.report(usage);
 };
 
 const toGenerateRequest = (
+  state: SessionState,
   signal: AbortSignal,
   options?: GenerateOptions,
-): GenerateRequest =>
-  options?.schema === undefined
-    ? { signal }
-    : { signal, schema: options.schema };
+): GenerateRequest => {
+  const history = state.transcript.entries();
+  return options?.schema === undefined
+    ? { signal, history }
+    : { signal, history, schema: options.schema };
+};
 
 const toFailure = (error: unknown): AiFailure =>
   error instanceof AiError ? error.failure : failureFrom(error);
@@ -56,7 +67,7 @@ const startTurn = (
   const begun = state.lifetime.begin(call, options?.signal);
   if (!begun.ok) return begun;
   const turn = begun.value;
-  const request = toGenerateRequest(turn.signal, options);
+  const request = toGenerateRequest(state, turn.signal, options);
   return ok({ turn, request });
 };
 
@@ -76,16 +87,18 @@ const guardStream = (
   hooks: TurnHooks,
 ): ReadableStream<string> => {
   const reader = source.getReader();
+  const parts: string[] = [];
   return new ReadableStream<string>({
     pull: async (controller) => {
       try {
         const next = await reader.read();
         if (signal.aborted) throw new AiError(abortFailure(signal));
         if (next.done) {
-          hooks.finish();
+          hooks.finish(parts.join(""));
           controller.close();
           return;
         }
+        parts.push(next.value);
         controller.enqueue(next.value);
       } catch (error) {
         hooks.abandon();
@@ -129,8 +142,8 @@ const startStream = async (
   // The token travels into the hooks, so a stream abandoned long ago cannot
   // end the turn running when its `cancel` finally arrives.
   const guarded = guardStream(generated.value, turn.signal, {
-    finish: () => {
-      recordUsage(state);
+    finish: (answer) => {
+      completeTurn(state, input, answer);
       state.lifetime.end(turn);
     },
     abandon: () => {
@@ -169,7 +182,7 @@ const promptWhole = async (
     const answer = await generateWhole(input, request);
     if (!answer.ok) return answer;
     if (turn.signal.aborted) return err(abortFailure(turn.signal));
-    recordUsage(state);
+    completeTurn(state, input, answer.value);
     return answer;
   } catch (error) {
     return err(toFailure(error));

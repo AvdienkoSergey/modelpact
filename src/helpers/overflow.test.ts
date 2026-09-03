@@ -26,6 +26,7 @@ const closures = (): Omit<
   prompt: (input) => Promise.resolve(ok(input)),
   promptStream: () => Promise.resolve(ok(new ReadableStream<string>())),
   usage: () => ({ kind: "unknown" }),
+  history: () => [],
   close: () => undefined,
 });
 

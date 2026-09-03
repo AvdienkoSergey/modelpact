@@ -8,7 +8,8 @@ import { describe, expect, test } from "vitest";
 
 import { ok } from "../types/foundations.js";
 import { AiError } from "../types/failures.js";
-import type { AiSession } from "../types/session.js";
+import type { AiMessage } from "../types/messages.js";
+import type { AiSession, SessionOptions } from "../types/session.js";
 import type { Model } from "../types/backend.js";
 import { createProvider } from "./create.js";
 
@@ -35,7 +36,10 @@ const modelOf = (generate: Model["generate"]): Model => ({
   dispose: () => undefined,
 });
 
-const openWith = async (model: Model): Promise<AiSession> => {
+const openWith = async (
+  model: Model,
+  options?: SessionOptions,
+): Promise<AiSession> => {
   const provider = createProvider({
     name: "mock",
     modalities: ["text"],
@@ -44,7 +48,7 @@ const openWith = async (model: Model): Promise<AiSession> => {
   });
   const access = await provider.access();
   if (access.kind !== "ready") throw new Error("expected ready");
-  const opened = await access.open();
+  const opened = await access.open(options);
   if (!opened.ok) throw new Error("expected a session");
   return opened.value;
 };
@@ -90,6 +94,27 @@ describe("lifecycle", () => {
     const answer = await session.prompt("hello");
     expect(answer.ok).toBe(false);
     if (!answer.ok) expect(answer.error.kind).toBe("failed");
+    session.close();
+  });
+
+  test("the record reaches the backend without this turn's input", async () => {
+    const seen: (readonly AiMessage[])[] = [];
+    const session = await openWith(
+      modelOf((input, request) => {
+        seen.push(request.history);
+        return Promise.resolve(ok(streamOf(`re: ${input}`)));
+      }),
+      { history: [{ role: "user", content: "earlier" }] },
+    );
+
+    await session.prompt("first");
+    await session.prompt("second");
+    expect(seen[0]).toEqual([{ role: "user", content: "earlier" }]);
+    expect(seen[1]).toEqual([
+      { role: "user", content: "earlier" },
+      { role: "user", content: "first" },
+      { role: "assistant", content: "re: first" },
+    ]);
     session.close();
   });
 

@@ -200,6 +200,16 @@ export async function stream(session: AiSession) {
 // only place the two declarations meet.
 export const platform = (monitor: CreateMonitor): DownloadMonitor => monitor;
 
+// --- 11. The record is a snapshot, not a handle ---
+// `history()` is for persisting, not for editing the session through it:
+// continuing a conversation goes through `open`, where the seed is checked.
+export function persist(session: AiSession): readonly AiMessage[] {
+  const record = session.history();
+  // @ts-expect-error the record is read-only
+  record.push({ role: "user", content: "smuggled" });
+  return record;
+}
+
 export function listen(monitor: DownloadMonitor) {
   // @ts-expect-error `report` belongs to ProgressMonitor, not to the contract:
   // a caller listens, a provider reports.

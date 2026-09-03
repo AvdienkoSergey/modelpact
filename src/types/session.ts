@@ -79,6 +79,16 @@ export interface AiSession extends EventTarget {
   ) => Promise<Result<ReadableStream<string>, AiFailure>>;
   readonly usage: () => ContextUsage;
   /**
+   * The conversation so far: what was handed at open, then every completed
+   * turn. An aborted or cancelled turn adds nothing, and nothing is ever
+   * dropped — `src/helpers/transcript.ts` holds both rules.
+   *
+   * Hand it back to `open` and the conversation continues where it was, which
+   * is how it survives a reload. Each call is a snapshot: later turns do not
+   * write into an array already handed out.
+   */
+  readonly history: () => readonly AiMessage[];
+  /**
    * In-flight and later calls fail with `aborted`, matching `destroy()`.
    *
    * Types cannot carry that guarantee — a value cannot be spent in TypeScript,
