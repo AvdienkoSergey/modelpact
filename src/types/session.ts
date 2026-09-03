@@ -36,7 +36,7 @@ export interface GenerateOptions {
  * One generation at a time: while a `prompt` or a `promptStream` is running,
  * both calls fail with `busy`. A session is one transcript, and interleaving
  * two turns into it produces a history no caller can repair; the refusal
- * itself is `src/helpers/turn.ts`. Like the guarantee on `close`, this one is
+ * itself is `src/helpers/lifetime.ts`. Like the guarantee on `close`, this one is
  * runtime: a type cannot say "not while that promise is pending".
  *
  * Callbacks are fields, not methods: `strictFunctionTypes` checks argument
