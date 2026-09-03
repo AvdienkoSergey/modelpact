@@ -42,6 +42,8 @@
     "test": "vitest run",
     "demo": "npm --prefix demo run dev",
     "demo:check": "npm --prefix demo run typecheck",
+    "external": "npm --prefix external/webgpu-provider test",
+    "external:surface": "npm --prefix external/webgpu-provider run check:surface",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "lint": "eslint .",

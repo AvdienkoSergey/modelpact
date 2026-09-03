@@ -1,0 +1,20 @@
+{
+  "name": "modelpact-webgpu",
+  "private": true,
+  "type": "module",
+  "description": "A backend written from outside the package, to find out whether outside is enough",
+  "scripts": {
+    "build:host": "npm --prefix ../.. run build",
+    "typecheck": "npm run build:host && tsc --noEmit",
+    "check:surface": "npm run build:host && tsc -p tsconfig.surface.json",
+    "test": "npm run build:host && vitest run"
+  },
+  "devDependencies": {
+    "@mlc-ai/web-llm": "^0.2.84",
+    "typescript": "~6.0.3",
+    "vitest": "^4.1.11"
+  },
+  "dependencies": {
+    "modelpact": "file:../.."
+  }
+}
