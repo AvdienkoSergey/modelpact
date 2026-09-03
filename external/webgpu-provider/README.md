@@ -47,6 +47,15 @@ already checks the signal around every read and errors in the vocabulary
 itself, so a backend racing it to the punch can only get it wrong. Both showed
 up as red on the first run, in `abort` and in `close`.
 
+**And then this package leaked the same way.** `WebGpuConfig.engine` was
+typed with `MLCEngineInterface` from `@mlc-ai/web-llm`, whose own `.d.ts`
+files name packages they do not depend on. The moment the demo started
+resolving this package through `exports` — `skipLibCheck` off, as a careful
+consumer would — it inherited that break through a type it never asked for.
+The fix is the one from the paragraph above: `WebGpuEngine`, a structural type
+of exactly what the backend uses, named here, and no third-party type in any
+exported signature. Same lesson, one package over, found by the same method.
+
 **Nothing else was missing.** `ok`, `err`, `failureFrom`, `contextUsage`,
 `fraction`, `tokens`, `createProvider` and the four backend types were the
 whole of what this needed, and all of them are exported.
@@ -70,6 +79,12 @@ and then wants a GPU, and a node run has neither. `needs-download` is the one
 scenario the suite skips here for the same reason — from out here there is no
 browser cache to empty.
 
-So this proves the adapter and the shape of the API, not WebGPU. Pointing it at
-a real engine is a browser and a few hundred megabytes away, and nothing in the
-code would change.
+So this proves the adapter and the shape of the API, not WebGPU. The real
+engine is a browser and a few hundred megabytes away — and the demo is that
+browser: [`demo/`](../demo) depends on this package at `file:`, resolves it
+through the `exports` map above like anything from npm, and lists it in its
+picker. Nothing in the code changed to get there.
+
+```sh
+npm run build   # the package first, then this one, into dist/
+```

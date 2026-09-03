@@ -13,9 +13,13 @@
 
 import { describe, expect, test } from "vitest";
 import { describeContract } from "modelpact/testing";
-import type { MLCEngineInterface } from "@mlc-ai/web-llm";
 
-import { makeWebGpuProvider } from "./webgpu.js";
+import {
+  makeWebGpuProvider,
+  type EngineChunk,
+  type EngineRequest,
+  type WebGpuEngine,
+} from "./webgpu.js";
 
 const MODEL = "Stub-0.5B-MLC";
 
@@ -33,7 +37,7 @@ const sleep = (ms: number): Promise<void> =>
 async function* chunksOf(
   text: string,
   used: number,
-): AsyncGenerator<Record<string, unknown>> {
+): AsyncGenerator<EngineChunk> {
   const words = text.match(/\S+\s*/g) ?? [text];
   for (const word of words) {
     await sleep(1);
@@ -42,33 +46,28 @@ async function* chunksOf(
   yield { choices: [{ delta: {} }], usage: { total_tokens: used } };
 }
 
-const stubEngine = (options: StubOptions): MLCEngineInterface => {
-  const engine = {
-    chat: {
-      completions: {
-        create: (given: {
-          messages: { content: string }[];
-          response_format?: unknown;
-        }) => {
-          options.failWith?.();
-          const asked = given.messages.at(-1)?.content ?? "";
-          // Prose unless a schema was asked for, as a real engine does: a
-          // constrained answer is one word and would fail "more than one delta"
-          // for a reason that says nothing about the backend.
-          const said =
-            given.response_format === undefined
-              ? `Answering «${asked}» at some length, in several words.`
-              : (options.reply ?? "{}");
-          const used = options.usedTokens ?? said.split(/\s+/).length;
-          return Promise.resolve(chunksOf(said, used));
-        },
+/** Typed as what the backend needs and not cast: the stub is held to the same shape the real engine is. */
+const stubEngine = (options: StubOptions): WebGpuEngine => ({
+  chat: {
+    completions: {
+      create: (given: EngineRequest) => {
+        options.failWith?.();
+        const asked = given.messages.at(-1)?.content ?? "";
+        // Prose unless a schema was asked for, as a real engine does: a
+        // constrained answer is one word and would fail "more than one delta"
+        // for a reason that says nothing about the backend.
+        const said =
+          given.response_format === undefined
+            ? `Answering «${asked}» at some length, in several words.`
+            : (options.reply ?? "{}");
+        const used = options.usedTokens ?? said.split(/\s+/).length;
+        return Promise.resolve(chunksOf(said, used));
       },
     },
-    unload: () => Promise.resolve(),
-    interruptGenerate: () => undefined,
-  };
-  return engine as unknown as MLCEngineInterface;
-};
+  },
+  unload: () => Promise.resolve(),
+  interruptGenerate: () => undefined,
+});
 
 const stubbed = (options: StubOptions = {}, contextWindow?: number) =>
   makeWebGpuProvider({

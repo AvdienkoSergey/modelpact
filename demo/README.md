@@ -25,11 +25,14 @@ npm run dev
 | The `ollama` entry answering     | a real model, through the same session as the three mocks     |
 | "Download them" before a fetch   | the `needs-download` branch, not opened unasked               |
 | The `prompt-api` entry           | Chrome's own model, mapped by the same four answers           |
+| The `webgpu` entry               | a backend from another package, installed like any other      |
 
-The picker holds five entries of one registry. Three are the mock with
-different settings; the other two are Ollama and Chrome's built-in model, and
-each was one line in [`src/providers.ts`](src/providers.ts) and nothing
-anywhere else. That is the claim the rest of this app exists to make honest.
+The picker holds six entries of one registry. Three are the mock with
+different settings; the others are Ollama, Chrome's built-in model, and a
+WebGPU backend from [`external/webgpu-provider`](../external/webgpu-provider),
+which this app depends on the way it would on any package from npm. Each was
+one line in [`src/providers.ts`](src/providers.ts) and nothing anywhere else.
+That is the claim the rest of this app exists to make honest.
 
 The Ollama entry wants a daemon on `127.0.0.1:11434` holding `granite4:350m`.
 Without one it answers `unavailable` and the chip says so, which is the branch
@@ -37,7 +40,8 @@ the three mocks cannot stage.
 
 The Chrome entry needs no configuring. What it usually lands on is
 `needs-download`, and that branch is not opened for you: Gemini Nano is
-gigabytes, and a dropdown is not consent. The button is.
+gigabytes, and a dropdown is not consent. The button is. The WebGPU entry sits
+behind the same button, for a few hundred megabytes of its own.
 
 ## Where the interesting parts are
 
@@ -73,9 +77,12 @@ clicking.
 
 ## Notes
 
-`modelpact` here resolves to `../src`, not to the built package, so an edit to
-the library reloads the page. What the published package looks like from
-outside is checked separately, against a packed tarball.
+`modelpact` is a dependency here at `file:..`, and `modelpact-webgpu` at
+`file:../external/webgpu-provider`. Both resolve through their own `exports`
+into `dist` — the same files `npm i` would hand a stranger — and neither has a
+path into anyone's `src/`. `predev` builds them first, so an edit to the
+library reaches this page after a rebuild and not before. That is deliberate:
+the library is developed against its tests, and this is its shop window.
 
 This directory is outside the repo's eslint: it has its own tsconfig, and
 `npm run demo:check` from the root is what type-checks it. CI installs its

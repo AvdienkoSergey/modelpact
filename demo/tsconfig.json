@@ -13,11 +13,10 @@
     "noEmit": true,
     "isolatedModules": true,
     "verbatimModuleSyntax": true,
-    // `dom-chromium-ai` because the aliased library source names the platform's
-    // `LanguageModel`; the copy resolved is the root's, patches and all.
-    "types": ["vite/client", "dom-chromium-ai"],
-    // The same alias vite resolves, so the editor and the bundler agree.
-    "paths": { "modelpact": ["../src/index.ts"] }
+    // No ambient types for the Prompt API on purpose: the published
+    // declarations must not need them, and this is one of the places that
+    // would show if they did.
+    "types": ["vite/client"]
   },
   "include": ["src", "vite.config.ts"]
 }

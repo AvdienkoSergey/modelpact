@@ -30,22 +30,61 @@ import {
   type ModelBackend,
   type Result,
 } from "modelpact";
-import {
-  CreateMLCEngine,
-  type ChatCompletionChunk,
-  type InitProgressReport,
-  type MLCEngineInterface,
-} from "@mlc-ai/web-llm";
+import { CreateMLCEngine, type InitProgressReport } from "@mlc-ai/web-llm";
+
+/** A delta as the engine sends it; these are the only fields read. */
+export interface EngineChunk {
+  readonly choices: readonly {
+    readonly delta: { readonly content?: string | null };
+  }[];
+  readonly usage?: { readonly total_tokens: number } | null;
+}
+
+export interface EngineRequest {
+  readonly model: string;
+  readonly messages: readonly {
+    readonly role: "system" | "user" | "assistant";
+    readonly content: string;
+  }[];
+  readonly stream: true;
+  readonly stream_options: { readonly include_usage: true };
+  readonly response_format?: {
+    readonly type: "json_object";
+    readonly schema: string;
+  };
+}
+
+/**
+ * What this backend uses of the engine, which is less than the engine has.
+ *
+ * Named here and not imported, so that the emitted declarations name nothing
+ * from `@mlc-ai/web-llm`. Its own `.d.ts` files reference packages it does not
+ * depend on, and a consumer with `skipLibCheck` off inherits that break through
+ * a type they never asked for — the demo did, the moment it started resolving
+ * this package the way npm would. The same lesson `modelpact` learned about
+ * `LanguageModel` a day earlier, one package over.
+ *
+ * Method syntax on purpose: it is bivariant, which is what lets the real
+ * engine, with its overloads and wider request type, satisfy this narrower one
+ * without restating all of it.
+ */
+export interface WebGpuEngine {
+  readonly chat: {
+    readonly completions: {
+      create(request: EngineRequest): Promise<AsyncIterable<EngineChunk>>;
+    };
+  };
+  unload(): Promise<void>;
+  interruptGenerate(): void;
+}
 
 export interface WebGpuConfig {
-  /** A tag from the engine's own catalogue, such as `Qwen2.5-0.5B-Instruct-q4f16_1-MLC`. */
+  /** A tag from the engine's own catalogue, such as `SmolLM2-360M-Instruct-q4f16_1-MLC`. */
   readonly model: string;
   /** Tokens the session is measured against; the engine reports no window of its own. */
   readonly contextWindow?: number;
-  /** For a test: the engine, already built, instead of one loaded from the network. */
-  readonly engine?: (
-    report: (loaded: number) => void,
-  ) => Promise<MLCEngineInterface>;
+  /** For a test: an engine already built, instead of one loaded from the network. */
+  readonly engine?: (report: (loaded: number) => void) => Promise<WebGpuEngine>;
 }
 
 const DEFAULTS = { contextWindow: 4096 };
@@ -95,14 +134,14 @@ const progressOf = (report: InitProgressReport): number =>
   typeof report.progress === "number" ? report.progress : 0;
 
 class WebGpuModel implements Model {
-  readonly #engine: MLCEngineInterface;
+  readonly #engine: WebGpuEngine;
   readonly #model: string;
   readonly #contextWindow: number;
   readonly #system: string | undefined;
   #usedTokens = 0;
 
   constructor(
-    engine: MLCEngineInterface,
+    engine: WebGpuEngine,
     config: WebGpuConfig,
     options: ConnectOptions,
   ) {
@@ -168,9 +207,7 @@ class WebGpuModel implements Model {
    * What is left to do is tell the engine, since it takes no signal of its own:
    * `cancel` reaches every way out — the reader stopping, the abort, the close.
    */
-  #deltasOf(
-    chunks: AsyncIterable<ChatCompletionChunk>,
-  ): ReadableStream<string> {
+  #deltasOf(chunks: AsyncIterable<EngineChunk>): ReadableStream<string> {
     const iterator = chunks[Symbol.asyncIterator]();
     return new ReadableStream<string>({
       pull: async (controller) => {
@@ -192,6 +229,41 @@ class WebGpuModel implements Model {
   }
 }
 
+/**
+ * The real engine behind `WebGpuEngine`. An adapter and not a cast: the real
+ * `create` is an overload set, and an overload set is not assignable to a
+ * single signature even when one member fits — so each call is written out,
+ * and the compiler resolves the streaming overload from `stream: true` and
+ * checks our request shape against it. Nothing here is asserted.
+ */
+const loadEngine = async (
+  model: string,
+  report: (loaded: number) => void,
+): Promise<WebGpuEngine> => {
+  const real = await CreateMLCEngine(model, {
+    initProgressCallback: (progress) => {
+      report(progressOf(progress));
+    },
+  });
+  return {
+    chat: {
+      completions: {
+        // A fresh array: ours is `readonly`, which is right for a request
+        // nobody should edit, and the engine's signature wants a mutable one.
+        create: (request) =>
+          real.chat.completions.create({
+            ...request,
+            messages: [...request.messages],
+          }),
+      },
+    },
+    unload: () => real.unload(),
+    interruptGenerate: () => {
+      real.interruptGenerate();
+    },
+  };
+};
+
 const connectEngine = async (
   config: WebGpuConfig,
   options: ConnectOptions,
@@ -203,11 +275,7 @@ const connectEngine = async (
   try {
     const engine =
       config.engine === undefined
-        ? await CreateMLCEngine(config.model, {
-            initProgressCallback: (progress) => {
-              report(progressOf(progress));
-            },
-          })
+        ? await loadEngine(config.model, report)
         : await config.engine(report);
     return ok(new WebGpuModel(engine, config, options));
   } catch (error) {

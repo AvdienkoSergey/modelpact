@@ -1,0 +1,14 @@
+{
+  // What a consumer of this package would receive: the provider, emitted with
+  // its declarations. Not the test and not `surface.ts`, which are this
+  // directory's own business.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "declarationMap": true,
+    "outDir": "dist",
+    "rootDir": "src"
+  },
+  "include": ["src/webgpu.ts"]
+}

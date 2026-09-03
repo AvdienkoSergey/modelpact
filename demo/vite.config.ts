@@ -1,16 +1,12 @@
-import { fileURLToPath } from "node:url";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
-// `modelpact` resolves to the source, not to `dist`: the point of running this
-// is to feel the API while changing it, and a build step between the two would
-// be paid on every edit. What the published package looks like from outside is
-// checked against a packed tarball instead.
+// No alias for `modelpact`, and none for `modelpact-webgpu`: both are
+// dependencies at `file:`, resolved through their own `exports` into `dist`,
+// which is what `npm i` hands anyone else. `predev` builds them first. The
+// price is that an edit to either needs a rebuild to reach this page, and that
+// is the right price: they are developed against their tests, and this is the
+// shop window.
 export default defineConfig({
   plugins: [react()],
-  resolve: {
-    alias: {
-      modelpact: fileURLToPath(new URL("../src/index.ts", import.meta.url)),
-    },
-  },
 });
