@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.0.3](https://github.com/AvdienkoSergey/modelpact/compare/v2.0.2...v2.0.3) (2026-09-03)
+
+
+### CI
+
+* publish by identity rather than by secret, and get off Node 20 ([26ae5db](https://github.com/AvdienkoSergey/modelpact/commit/26ae5dbb0ef60db3a21f8f6535839fb9bf1ef7a7))
+* publish by identity rather than by secret, and get off Node 20 ([53c6151](https://github.com/AvdienkoSergey/modelpact/commit/53c615188a5f32e9262ab7ddd1f7777d43533ea1))
+
 ## [2.0.2](https://github.com/AvdienkoSergey/modelpact/compare/v2.0.1...v2.0.2) (2026-09-03)
 
 
