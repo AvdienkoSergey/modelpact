@@ -36,7 +36,8 @@ export interface Tool {
   readonly execute: (args: Record<string, unknown>) => Promise<string> | string;
 }
 
-export type ResultStatus = "ok" | "error" | "denied";
+/** `repeat` is `ok` that the model has already been given once, word for word. */
+export type ResultStatus = "ok" | "error" | "denied" | "repeat";
 
 export type AgentEvent =
   | { readonly kind: "step"; readonly step: number; readonly maxSteps: number }
@@ -155,6 +156,9 @@ const readStep = (text: string): Step | null => {
   if (held === null) return null;
   const action = held["action"];
   if (action !== "tool" && action !== "answer") return null;
+  // "call a tool" with no name is malformed output, not a call to a tool that
+  // does not exist; the repair prompt is a better answer than a list of names.
+  if (action === "tool" && asText(held["tool"]).trim() === "") return null;
   return {
     reason: asText(held["reason"]),
     action,
@@ -194,6 +198,31 @@ const openingPrompt = (
   instructions: string,
 ): string =>
   `${instructions}\n\n${describeTools(tools)}\n\n${SHAPE_REMINDER}\n\nTask: ${task}`;
+
+/**
+ * What a tool said the last time it was called with these exact arguments.
+ *
+ * A model that calls the same tool with the same arguments and is handed the
+ * same answer has nothing new to go on, and small ones will do it until the
+ * step limit stops them — `granite4:350m` read one file seven times. The tool
+ * still runs, because a clock or a fetch is allowed to answer differently; it
+ * is only when the answer is identical too that the loop is real, and then the
+ * model is told so instead of being handed the same text again.
+ */
+type Seen = Map<string, string>;
+
+const seenKey = (step: Step): string =>
+  `${step.tool}(${JSON.stringify(step.args)})`;
+
+/**
+ * How many identical calls in a row before the run is stopped.
+ *
+ * One is a slip and gets a nudge. Two in a row means the nudge was not read
+ * either, and every further step spends tokens to be told the same thing:
+ * `granite4:350m` asked for a tool that does not exist eight times running,
+ * and was handed the list of real ones eight times.
+ */
+const STUCK_AT = 2;
 
 const runTool = async (
   step: Step,
@@ -256,6 +285,9 @@ export async function runAgent(
     parts.instructions ?? INSTRUCTIONS,
   );
 
+  const seen: Seen = new Map();
+  let stuck = 0;
+
   for (let step = 1; step <= maxSteps; step += 1) {
     emit({ kind: "step", step, maxSteps });
     const said = await think(input);
@@ -282,17 +314,38 @@ export async function runAgent(
 
     emit({ kind: "tool", step, name: decided.tool, args: decided.args });
     const outcome = await runTool(decided, parts);
+
+    const key = seenKey(decided);
+    // Any status, not only `ok`: a refusal repeated word for word is a loop as
+    // surely as an answer repeated word for word, and it is the one that
+    // actually happened.
+    const repeated = seen.get(key) === outcome.rendered;
+    seen.set(key, outcome.rendered);
+    stuck = repeated ? stuck + 1 : 0;
+
     emit({
       kind: "result",
       step,
       name: decided.tool,
-      status: outcome.status,
+      status: repeated ? "repeat" : outcome.status,
       preview: outcome.rendered.slice(0, 200),
     });
     // The contract carries user and assistant turns and nothing else, so a
     // tool result goes back as the next user message. That is the whole of the
     // mapping, and it is why no tool protocol was needed in the contract.
-    input = `Result of ${decided.tool}:\n${outcome.rendered}\n\n${SHAPE_REMINDER}`;
+    if (stuck >= STUCK_AT) {
+      return {
+        ok: false,
+        error: {
+          kind: "failed",
+          detail: `the agent called ${key} ${stuck + 1} times for the same answer and did not move on`,
+        },
+      };
+    }
+
+    input = repeated
+      ? `${key} was called before and has just given exactly the same answer:\n${outcome.rendered}\n\nCalling it again will not help. Use that answer now, or call a different tool, or finish. ${SHAPE_REMINDER}`
+      : `Result of ${decided.tool}:\n${outcome.rendered}\n\n${SHAPE_REMINDER}`;
   }
 
   return {

@@ -102,6 +102,17 @@ nothing else — an action with no verb. With all five required it answered
 `{"reason":"…","action":"tool","tool":"listFiles","args":{},"answer":""}`.
 `qwen3:14b` was the control and got it right either way.
 
+**A small model loops, and the harness has to notice.** `granite4:350m` fills
+the schema correctly and picks a real tool, and then cannot carry the task
+across turns: handed a directory listing it asked for the same listing again,
+and told that repeating would not help it repeated once more. A step limit
+alone turned that into eight wasted steps and the word `failed`. Now an
+identical call with an identical answer — of any status, because the repeat
+that actually happened was a repeated error — is named back as a repeat, and a
+third one stops the run and says which call it was. Six steps and a diagnosis
+instead of eight and a shrug. It does not make the model capable; it makes the
+failure legible.
+
 **The truncation default is 4 000 characters, not 60 000.** That agent talks to
 a 200k-token cloud model. A local 4096-token window is filled by one file read
 at 60k, so the small default is the one that keeps a local model working.
