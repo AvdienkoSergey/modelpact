@@ -10,7 +10,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AiError,
-  err,
   type AccessKind,
   type AiFailure,
   type AiMessage,
@@ -33,28 +32,48 @@ export interface Chat {
   readonly failure: AiFailure | null;
   /** 0..1 while weights are moving, null otherwise. */
   readonly downloading: number | null;
+  /** The backend wants weights and has not been told to fetch them. */
+  readonly awaitingDownload: boolean;
   readonly ready: boolean;
+  readonly startDownload: () => void;
   readonly send: (input: string) => void;
   readonly stop: () => void;
   readonly reset: () => void;
 }
 
+/** Opening has a third answer: weights are wanted and nobody has said yes. */
+type Opening =
+  | { readonly kind: "opened"; readonly session: AiSession }
+  | { readonly kind: "refused"; readonly failure: AiFailure }
+  | { readonly kind: "awaiting-download" };
+
+const openingOf = (opened: Result<AiSession, AiFailure>): Opening =>
+  opened.ok
+    ? { kind: "opened", session: opened.value }
+    : { kind: "refused", failure: opened.error };
+
 /**
- * Both branches that can open, behind one call. `needs-download` wants the
- * monitor subscribed before anything is awaited, which the callback shape
- * enforces.
+ * Every branch of `ModelAccess`, behind one call.
+ *
+ * `needs-download` is not opened unasked. On the mock it costs a few hundred
+ * milliseconds, but on Chrome's built-in model it is gigabytes, and a person
+ * changing a dropdown has not agreed to that. The monitor is subscribed before
+ * anything is awaited, which the callback shape is what enforces.
  */
 async function openSession(
   name: ProviderName,
   history: readonly AiMessage[],
+  allowDownload: boolean,
   onAccess: (kind: AccessKind) => void,
   onProgress: (loaded: number) => void,
-): Promise<Result<AiSession, AiFailure>> {
+): Promise<Opening> {
   const access = await PROVIDERS[name].access();
   onAccess(access.kind);
-  if (access.kind === "unavailable") return err(access.reason);
+  if (access.kind === "unavailable")
+    return { kind: "refused", failure: access.reason };
   if (access.kind === "needs-download") {
-    return access.open(
+    if (!allowDownload) return { kind: "awaiting-download" };
+    const opened = await access.open(
       (monitor) => {
         monitor.ondownloadprogress = (event) => {
           onProgress(event.loaded / event.total);
@@ -62,8 +81,9 @@ async function openSession(
       },
       { history },
     );
+    return openingOf(opened);
   }
-  return access.open({ history });
+  return openingOf(await access.open({ history }));
 }
 
 export function useChat(name: ProviderName): Chat {
@@ -77,6 +97,10 @@ export function useChat(name: ProviderName): Chat {
   const [failure, setFailure] = useState<AiFailure | null>(null);
   const [downloading, setDownloading] = useState<number | null>(null);
   const [access, setAccess] = useState<AccessKind | null>(null);
+  const [awaitingDownload, setAwaitingDownload] = useState(false);
+  // The name it was granted for, not a flag: switching backends cannot carry
+  // an answer given about a different one.
+  const [allowedFor, setAllowedFor] = useState<ProviderName | null>(null);
   const [ready, setReady] = useState(false);
 
   const session = useRef<AiSession | null>(null);
@@ -89,13 +113,18 @@ export function useChat(name: ProviderName): Chat {
     let live = true;
     setReady(false);
     setAccess(null);
+    setAwaitingDownload(false);
     setOverflowed(false);
     setFailure(null);
+    // The old session's meter belongs to the old session; leaving it up reads
+    // as a measurement of the one being opened.
+    setUsage({ kind: "unknown" });
 
     void (async () => {
-      const opened = await openSession(
+      const opening = await openSession(
         name,
         seed,
+        allowedFor === name,
         (kind) => {
           if (live) setAccess(kind);
         },
@@ -107,14 +136,18 @@ export function useChat(name: ProviderName): Chat {
       if (!live) {
         // Unmounted while opening, or the effect re-ran: this session belongs
         // to nobody, and leaving it open would leave its backend open too.
-        if (opened.ok) opened.value.close();
+        if (opening.kind === "opened") opening.session.close();
         return;
       }
-      if (!opened.ok) {
-        setFailure(opened.error);
+      if (opening.kind === "awaiting-download") {
+        setAwaitingDownload(true);
         return;
       }
-      current = opened.value;
+      if (opening.kind === "refused") {
+        setFailure(opening.failure);
+        return;
+      }
+      current = opening.session;
       current.oncontextoverflow = () => {
         setOverflowed(true);
       };
@@ -129,7 +162,7 @@ export function useChat(name: ProviderName): Chat {
       current?.close();
       session.current = null;
     };
-  }, [name, seed]);
+  }, [name, seed, allowedFor]);
 
   const send = useCallback((input: string) => {
     const current = session.current;
@@ -182,6 +215,10 @@ export function useChat(name: ProviderName): Chat {
     turn.current?.abort();
   }, []);
 
+  const startDownload = useCallback(() => {
+    setAllowedFor(name);
+  }, [name]);
+
   const reset = useCallback(() => {
     turn.current?.abort();
     clearRecord();
@@ -197,9 +234,11 @@ export function useChat(name: ProviderName): Chat {
     overflowed,
     failure,
     downloading,
+    awaitingDownload,
     ready,
     send,
     stop,
     reset,
+    startDownload,
   };
 }

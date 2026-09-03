@@ -55,6 +55,14 @@ function statusOf(chat: Chat): string {
   return chat.ready ? ACCESS.ready : ACCESS[chat.access];
 }
 
+/** Three states, three prompts: nothing here should read as "still loading". */
+function placeholderFor(chat: Chat): string {
+  if (chat.ready) return "Ask it something";
+  return chat.awaitingDownload
+    ? "Waiting on the download"
+    : "Opening a session…";
+}
+
 function explain(failure: AiFailure): string {
   const notice = NOTICE[failure.kind];
   // Only some kinds carry a detail, and narrowing is what says which.
@@ -114,6 +122,14 @@ export function App() {
         </button>
       </header>
 
+      {chat.awaitingDownload && (
+        <p className="notice">
+          This backend has no weights on this machine yet.{" "}
+          <button type="button" onClick={chat.startDownload}>
+            Download them
+          </button>
+        </p>
+      )}
       {chat.downloading !== null && (
         <p className="notice">
           Downloading weights… {Math.round(chat.downloading * 100)}%
@@ -143,7 +159,7 @@ export function App() {
       <form onSubmit={submit}>
         <input
           value={draft}
-          placeholder={chat.ready ? "Ask it something" : "Opening a session…"}
+          placeholder={placeholderFor(chat)}
           onChange={(event) => setDraft(event.target.value)}
           disabled={!chat.ready}
         />
