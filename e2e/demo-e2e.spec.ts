@@ -48,6 +48,18 @@ async function ask(page: Page, input: string): Promise<void> {
   await expect(sendButton(page)).toBeVisible({ timeout: 20_000 });
 }
 
+/** Asked from node, not the page: the spec skips rather than fails where no daemon runs. */
+async function daemonAnswers(): Promise<boolean> {
+  try {
+    const response = await fetch("http://127.0.0.1:11434/api/tags", {
+      signal: AbortSignal.timeout(2_000),
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
   await opened(page);
@@ -150,4 +162,24 @@ test("the download branch reports progress and then opens", async ({
   await expect(chip(page)).toHaveText("ready");
   await ask(page, "Downloaded, then asked");
   await expect(messages(page)).toHaveCount(2);
+});
+
+/**
+ * The one entry with a model behind it, and the only check that runs a real
+ * provider where it will actually live. A page is not node: `fetch` held on its
+ * own throws `Illegal invocation` in one and works in the other, and no vitest
+ * run can see that.
+ */
+test("the ollama entry reaches a daemon and answers", async ({ page }) => {
+  test.skip(!(await daemonAnswers()), "no ollama daemon on 11434");
+
+  await page.selectOption("select", "ollama");
+  await expect(chip(page)).toHaveText("ready", { timeout: 30_000 });
+  await opened(page);
+
+  await composer(page).fill("Name the capital of France in one word.");
+  await sendButton(page).click();
+  await expect(sendButton(page)).toBeVisible({ timeout: 60_000 });
+  await expect(messages(page)).toHaveCount(2);
+  await expect(messages(page).nth(1)).not.toBeEmpty();
 });

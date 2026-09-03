@@ -15,6 +15,7 @@ export {
   type ProviderRegistry,
 } from "./providers/registry.js";
 export { makeMockProvider, type MockConfig } from "./providers/mock.js";
+export { makeOllamaProvider, type OllamaConfig } from "./providers/ollama.js";
 
 export type { AiProvider, ProviderName } from "./types/provider.js";
 export type {
