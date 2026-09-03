@@ -12,7 +12,7 @@
 import { createInterface } from "node:readline/promises";
 import { stdin, stdout, env, cwd } from "node:process";
 import { resolve } from "node:path";
-import { makeOllamaProvider, type AiSession } from "modelpact";
+import { makeOllamaProvider, type AiFailure, type AiSession } from "modelpact";
 
 import { runAgent, type AgentEvent } from "./agent.js";
 import { brainOfChat, brainOfSession, type Brain } from "./brain.js";
@@ -84,6 +84,10 @@ const singleThinker = async (): Promise<Thinker | null> => {
   };
 };
 
+/** The kind alone says almost nothing; every failure that carries a detail carries the reason. */
+const explain = (failure: AiFailure): string =>
+  "detail" in failure ? `${failure.kind}: ${failure.detail}` : failure.kind;
+
 const show = (event: AgentEvent): void => {
   if (event.kind === "thought") stdout.write(`  · ${event.reason}\n`);
   if (event.kind === "tool")
@@ -128,7 +132,7 @@ const main = async (): Promise<void> => {
       stdout.write(
         `\n${run.value.text}\n  (${run.value.steps} steps, ${run.value.constrained ? "schema" : "prose"})\n`,
       );
-    else stdout.write(`  refused: ${run.error.kind}\n`);
+    else stdout.write(`  refused: ${explain(run.error)}\n`);
     rl.prompt();
   }
   rl.close();

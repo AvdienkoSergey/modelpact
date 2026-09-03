@@ -167,15 +167,98 @@ describe("the agent loop", () => {
     expect(fed.length).toBeLessThan(400);
   });
 
-  test("running out of steps is a failure with a reason, not a hang", async () => {
+  test("the same call with the same answer is named as a repeat, not fed back again", async () => {
+    const { brain, asked } = scripted([
+      callTool("echo", { text: "x" }),
+      callTool("echo", { text: "x" }),
+      answer("fine"),
+    ]);
+    const events: AgentEvent[] = [];
+    await runAgent(
+      { brain, tools: [echoTool()], onEvent: (e) => events.push(e) },
+      "loop a bit",
+    );
+
+    const statuses = events
+      .filter((e) => e.kind === "result")
+      .map((e) => (e.kind === "result" ? e.status : ""));
+    expect(statuses).toEqual(["ok", "repeat"]);
+    // The second time it is told so, instead of being handed the same text.
+    expect(asked[2]?.input).toContain("Calling it again will not help");
+  });
+
+  test("a tool that answers differently each time is not a repeat", async () => {
+    let calls = 0;
+    const clock: Tool = {
+      ...echoTool("clock"),
+      execute: () => `tick ${(calls += 1)}`,
+    };
+    const { brain } = scripted([
+      callTool("clock"),
+      callTool("clock"),
+      answer("fine"),
+    ]);
+    const events: AgentEvent[] = [];
+    await runAgent(
+      { brain, tools: [clock], onEvent: (e) => events.push(e) },
+      "read the clock twice",
+    );
+
+    const statuses = events
+      .filter((e) => e.kind === "result")
+      .map((e) => (e.kind === "result" ? e.status : ""));
+    // Same arguments, different answers: legitimate, and left alone.
+    expect(statuses).toEqual(["ok", "ok"]);
+  });
+
+  test("a third identical call stops the run, with the call named", async () => {
     const { brain } = scripted([
       callTool("echo"),
       callTool("echo"),
       callTool("echo"),
+      answer("never reached"),
+    ]);
+    const run = await runAgent(
+      { brain, tools: [echoTool()], maxSteps: 20 },
+      "loop",
+    );
+    expect(run.ok).toBe(false);
+    if (run.ok || run.error.kind !== "failed") return;
+    // Early and specific, rather than burning every step to say the same thing.
+    expect(run.error.detail).toContain("echo(");
+    expect(run.error.detail).toContain("3 times");
+  });
+
+  test("a repeated failure is a loop too, which is the one that happens", async () => {
+    const { brain, asked } = scripted([
+      callTool("nosuch"),
+      callTool("nosuch"),
+      answer("fine"),
+    ]);
+    const events: AgentEvent[] = [];
+    await runAgent(
+      { brain, tools: [echoTool()], onEvent: (e) => events.push(e) },
+      "ask for a ghost",
+    );
+
+    const statuses = events
+      .filter((e) => e.kind === "result")
+      .map((e) => (e.kind === "result" ? e.status : ""));
+    expect(statuses).toEqual(["error", "repeat"]);
+    expect(asked[2]?.input).toContain("Calling it again will not help");
+  });
+
+  test("running out of steps is a failure with a reason, not a hang", async () => {
+    // Different arguments each time, so this is slow progress rather than the
+    // stuck detector above; the bound is what ends it.
+    const { brain } = scripted([
+      callTool("echo", { text: "a" }),
+      callTool("echo", { text: "b" }),
+      callTool("echo", { text: "c" }),
     ]);
     const run = await runAgent(
       { brain, tools: [echoTool()], maxSteps: 3 },
-      "loop forever",
+      "work slowly",
     );
     expect(run.ok).toBe(false);
     if (run.ok) return;
@@ -193,6 +276,19 @@ describe("the agent loop", () => {
     expect(run.ok).toBe(true);
     if (run.ok) expect(run.value.steps).toBe(2);
     expect(asked[1]?.input).toContain("not the shape asked for");
+  });
+
+  test('"call a tool" with no name is a shape error, not a missing tool', async () => {
+    const { brain, asked } = scripted([
+      step({ action: "tool", tool: "" }),
+      answer("recovered"),
+    ]);
+    const run = await runAgent({ brain, tools: [echoTool()] }, "do it");
+    expect(run.ok).toBe(true);
+    // `granite4:350m` emitted exactly this, and being handed a list of tool
+    // names told it nothing it could use.
+    expect(asked[1]?.input).toContain("not the shape asked for");
+    expect(asked[1]?.input).not.toContain("there is no tool called");
   });
 
   test("a refused schema drops the loop into prose, and it still finishes", async () => {
