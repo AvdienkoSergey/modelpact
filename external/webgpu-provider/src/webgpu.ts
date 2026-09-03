@@ -210,16 +210,25 @@ class WebGpuModel implements Model {
   #deltasOf(chunks: AsyncIterable<EngineChunk>): ReadableStream<string> {
     const iterator = chunks[Symbol.asyncIterator]();
     return new ReadableStream<string>({
+      // Loops until it can enqueue or close: a pull that returns empty-handed
+      // is not called again unless a read arrived meanwhile, and the engine
+      // sends chunks with no text — the usage one, a stop one — back to back.
+      // Found in the sibling package on `claude -p`, fixed here before it bit.
       pull: async (controller) => {
-        const next = await iterator.next();
-        if (next.done === true) {
-          controller.close();
-          return;
+        for (;;) {
+          const next = await iterator.next();
+          if (next.done === true) {
+            controller.close();
+            return;
+          }
+          const chunk = next.value;
+          if (chunk.usage != null) this.#usedTokens = chunk.usage.total_tokens;
+          const delta = chunk.choices[0]?.delta.content ?? "";
+          if (delta !== "") {
+            controller.enqueue(delta);
+            return;
+          }
         }
-        const chunk = next.value;
-        if (chunk.usage != null) this.#usedTokens = chunk.usage.total_tokens;
-        const delta = chunk.choices[0]?.delta.content ?? "";
-        if (delta !== "") controller.enqueue(delta);
       },
       cancel: async () => {
         this.#engine.interruptGenerate();
