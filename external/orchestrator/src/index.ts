@@ -6,9 +6,10 @@ export {
   type Spawner,
 } from "./claude-cli.js";
 export {
-  makeRouterBackend,
-  type CloudWhen,
+  orchestrate,
+  type Answer,
+  type Orchestrator,
+  type OrchestratorParts,
   type Policy,
-  type Route,
-  type RouterParts,
-} from "./router.js";
+  type Side,
+} from "./orchestrate.js";

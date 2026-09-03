@@ -1,15 +1,14 @@
 /**
  * The real thing, when it is here: `claude` on PATH and a daemon on 11434.
- * Skips loudly otherwise. Prompts are one-liners and the cloud side is
- * capped, because this spends the account's own budget.
+ * Skips loudly otherwise. One-liners and a capped budget, because this spends
+ * the account's own money.
  */
 import { spawnSync } from "node:child_process";
 import { describe, expect, test } from "vitest";
-import { createProvider, makeOllamaProvider } from "modelpact";
+import { makeOllamaProvider } from "modelpact";
 
-import { backendOf } from "./backend-of.js";
-import { makeClaudeCliBackend } from "./claude-cli.js";
-import { makeRouterBackend, type Route } from "./router.js";
+import { makeClaudeCliProvider } from "./claude-cli.js";
+import { orchestrate, type Side } from "./orchestrate.js";
 
 const claudeHere =
   spawnSync("claude", ["--version"], { encoding: "utf8" }).status === 0;
@@ -25,40 +24,30 @@ const ollamaHere = await (async () => {
 })();
 
 describe.skipIf(!claudeHere || !ollamaHere)(
-  "live: claude -p and ollama under one router",
+  "live: claude -p and ollama in one conversation",
   () => {
-    test("a predicate sends one turn each way and both answer", async () => {
-      const routes: Route[] = [];
-      const provider = createProvider(
-        makeRouterBackend({
-          local: backendOf(
-            "ollama",
-            makeOllamaProvider({ model: "granite4:350m" }),
-          ),
-          cloud: makeClaudeCliBackend({ model: "sonnet", maxBudgetUsd: 0.2 }),
-          policy: {
-            kind: "predicate",
-            cloudWhen: (input) => input.startsWith("cloud:"),
-          },
-          onRoute: (route) => routes.push(route),
-        }),
-      );
-      const access = await provider.access();
-      expect(access.kind).toBe("ready");
-      if (access.kind !== "ready") return;
-      const opened = await access.open({
-        system: "Answer in at most five words.",
+    test("local, cloud, local — and the third turn saw the second", async () => {
+      const sides: Side[] = [];
+      let turn = 0;
+      const chat = orchestrate({
+        local: makeOllamaProvider({ model: "granite4:350m" }),
+        cloud: makeClaudeCliProvider({ model: "sonnet", maxBudgetUsd: 0.2 }),
+        policy: { kind: "predicate", cloudWhen: () => (turn += 1) === 2 },
+        system: "Answer in at most eight words.",
+        onRoute: (side) => sides.push(side),
       });
-      if (!opened.ok) throw new Error(`open refused: ${opened.error.kind}`);
-      const session = opened.value;
 
-      const local = await session.prompt("Name the capital of France.");
-      const cloud = await session.prompt("cloud: And of Italy?");
-      expect(local.ok && local.value.length > 0).toBe(true);
-      expect(cloud.ok && cloud.value.length > 0).toBe(true);
-      expect(routes).toEqual(["local", "cloud"]);
-      expect(session.history()).toHaveLength(4);
-      session.close();
-    }, 120_000);
+      const first = await chat.ask("My favourite colour is teal. Acknowledge.");
+      const second = await chat.ask("Name the capital of France.");
+      const third = await chat.ask("What did I say my favourite colour was?");
+
+      expect(first.ok && second.ok && third.ok).toBe(true);
+      expect(sides).toEqual(["local", "cloud", "local"]);
+      expect(chat.record()).toHaveLength(6);
+      // The local model was reopened on the whole record, so the answer it gives
+      // is about a fact stated before a turn it did not answer.
+      if (third.ok) expect(third.value.text.toLowerCase()).toContain("teal");
+      chat.close();
+    }, 180_000);
   },
 );

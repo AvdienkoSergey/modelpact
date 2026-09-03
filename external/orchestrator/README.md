@@ -1,70 +1,112 @@
-# Two models, one session: an orchestrator written from outside
+# Two models in one conversation — and one storey up
 
 Claude from the `claude` you already pay for, a local model from Ollama, and a
-condition between them — composed into a single `AiSession` and, like
-[`../webgpu-provider`](../webgpu-provider), written against the published
-package only: `modelpact` at `file:../..`, resolved through `exports`, no path
-into `src/`.
+policy that picks between them. Written from outside `modelpact`: it depends on
+the package at `file:../..`, resolves through `exports`, and has no path into
+`src/`.
 
 ```sh
 npm install
-npm test            # builds the package, then the suites (live one skips without claude + ollama)
-npm run chat        # a terminal chat over the router; POLICY=predicate|escalate|classify
+npm test            # builds the package, then the suites (the live one skips without claude + ollama)
+npm run chat        # a terminal chat; POLICY=predicate|escalate|classify
 ```
 
-## What it adds to the picture
+## The mistake this package is mostly about
 
-**A third transport.** Ollama was HTTP and NDJSON; Chrome was a class in the
-page; WebGPU was an engine in the tab. `claude -p --output-format stream-json`
-is a child process — deltas on stdout, the answer, the usage and the cost on the
-last line. The four answers are the same. [`src/claude-cli.ts`](src/claude-cli.ts).
+The first version made the router a `ModelBackend` — two backends and a policy,
+composed into one, plugged in where a transport goes. It passed the conformance
+suite. It was still wrong, and everything that had to be forced said so:
 
-**Composition is a backend.** [`src/router.ts`](src/router.ts) is a
-`ModelBackend` made of two `ModelBackend`s and a policy, and it passes the same
-conformance suite as any single one. The lifecycle keeps the one conversation
-and hands `request.history` to whichever side speaks, so a turn answered by
-Ollama is in Claude's context on the next turn, and the other way round. Three
-policies, as a union:
+- a usage meter had to pick a side, though two models have two windows and two
+  tokenizers, so the number it reported was true of neither;
+- an overflow event from one side meant nothing for the other;
+- the inner provider had to be reopened every turn to be told about turns it
+  had not answered, because a provider keeps its own conversation and a backend
+  is handed one;
+- `escalate` had to read the local answer whole before judging it, which killed
+  streaming from inside a slot whose whole promise is a stream.
 
-| `policy.kind` | Decides by                                                         |
-| ------------- | ------------------------------------------------------------------ |
-| `predicate`   | a function of the input — length, a keyword, a privacy marker      |
-| `escalate`    | the local answer, whole, kept only if `accept` says so; else cloud |
-| `classify`    | a judge backend asked with a schema; a small Ollama model fits     |
+Five leaks, one hole. A session is a relationship with **one** model, and every
+guarantee it makes assumes that. Two models under one session share a
+transcript and nothing else.
+
+There are three storeys, and the router belongs on the third:
+
+| Storey        | What lives there                            | Who owns it                                        |
+| ------------- | ------------------------------------------- | -------------------------------------------------- |
+| transport     | how to reach one model                      | `ModelBackend` — `src/claude-cli.ts` is a good one |
+| session       | one conversation, one model, the guarantees | the library                                        |
+| orchestration | several models, a policy, a loop            | this file, `src/orchestrate.ts`                    |
+
+Moved up, nothing has to be forced — and it needed **nothing new from the
+package**, which is the check that the storey is right. `open({ history })` is
+already the door for handing a session a conversation it did not have.
+
+## What it is, and honestly is not
+
+`orchestrate()` holds two providers, a record of its own, and a policy. It is
+not an `AiSession` and does not pretend to be: `ask()` returns the answer, the
+side that gave it, and **that side's** meter. No third meter over two models,
+because there is no such thing.
+
+| `policy.kind` | Decides by                                                             |
+| ------------- | ---------------------------------------------------------------------- |
+| `predicate`   | a function of the input — length, a keyword, a privacy marker          |
+| `escalate`    | the local answer, whole, kept only if `accept` says so; else cloud     |
+| `classify`    | a judge provider asked which way to send it; a small Ollama model fits |
 
 `classify` is two models cooperating: `granite4:350m` decides, `qwen3:14b` or
 Claude answers.
 
-## What it found
+**How a side is kept in the conversation.** A session that has answered every
+turn since it was opened is current, and is left alone — reopening a model that
+keeps its own transcript costs the state it built. When the other side has
+spoken since, it is reopened on the record. That is the whole rule, and it is a
+decision this package makes about its own conversation, not something the
+library had to be talked into.
 
-**Providers out, backends in — and that is the right way round.** The
-package hands out `AiProvider`s, and a router composes `ModelBackend`s. There
-is no `makeOllamaBackend`, and this package first recommended one; withdrawn.
-The two are different kinds, not one thing in two wrappers: a backend is
-asked with the whole history on every turn, a provider's session keeps the
-conversation itself. So a provider cannot be unwrapped into a backend — it can
-only be _reopened_ on the router's history each turn, which is what
-[`src/backend-of.ts`](src/backend-of.ts) does. The first version opened once
-and reused the session, and the local side then missed every turn the cloud
-had answered; a test now sends local → cloud → local and checks the third
-turn saw the second. Composing two finished providers costs one `open` per
-turn, and that cost belongs to the composer, not to the package's surface.
+`escalate` still cannot stream, and that is the policy's cost rather than a
+leak: an answer that may be thrown away cannot be shown first. The other two
+stream normally.
 
-**`claude -p --json-schema` fails under `--tools ""` on 2.1.138** — `is_error`
-on the result line, no structured output. So a schema is refused with
-`unsupported-config`, which the contract allows; it is never dropped.
+## The transport underneath
 
-**SIGTERM is exit 143, and the lifecycle has already spoken.** By the time the
-process is gone the stream has been errored as `aborted` from outside, so 143
-is not reported again as a failure.
+`src/claude-cli.ts` is the part that was right from the start: `claude -p
+--output-format stream-json` as a third transport after HTTP and an in-page
+class. A child process, deltas on stdout, the answer and the cost on the last
+line — and the same four answers every other backend gives. Shapes read off
+2.1.138, not off the docs:
 
-**Stateless per turn, on purpose.** `--resume` would let the CLI keep the
-conversation, but then a turn Ollama answered would be missing from Claude's
-side. The conversation is rendered into each prompt instead; lossy against real
-turns, and the price of routing.
+- `--json-schema` fails with `is_error` under `--tools ""`, so a schema is
+  refused with `unsupported-config` rather than dropped;
+- SIGTERM is exit 143, and by then the lifecycle has already errored the stream
+  as `aborted`, so it is not reported twice;
+- stateless per turn on purpose — rendered history instead of `--resume`, or a
+  turn the local side answered would be missing from Claude's context;
+- the spawner is structural (`ReadableStream<BufferSource>`, a promise, a
+  `kill()`), so the emitted `.d.ts` names nothing from `@types/node`.
+  `tsconfig.surface.json` reads the built declarations with `types: []` to keep
+  it that way.
 
-**The spawner is structural** — `Spawned` names `ReadableStream<BufferSource>`,
-a promise and `kill()`, not `ChildProcess`. Same lesson as `LanguageModel` and
-`MLCEngineInterface` before it, applied before a consumer had to find it:
-`tsconfig.surface.json` compiles the exports with `types: []`, and a node type
-in a public signature would fail there.
+## One more bug it found
+
+A `ReadableStream` pull that returns without enqueueing is not called again
+unless a read arrived while it ran. Two housekeeping lines in a row — `init`
+then `message_start` — stalled every turn. The same latent bug was in the
+WebGPU backend next door, where two text-less chunks would have done it, and it
+was fixed there before it bit.
+
+## Tests
+
+`src/orchestrate.test.ts` does **not** run the conformance suite, because this
+was never honestly a provider. It tests what it actually promises: which side
+answers, that a warm side is not reopened for nothing, that a rejected answer
+never reaches the record, and — the one that matters — local, cloud, local,
+with the third turn seeing the second. That test goes red if the reopen rule is
+removed, checked by removing it.
+
+`src/claude-cli.test.ts` runs the conformance suite against a process made of
+strings, because that one _is_ a provider. `src/live.test.ts` runs the real
+binary and the real daemon in one conversation when both are present: it states
+a fact to the local model, asks the cloud something else, then asks the local
+model about the fact — and skips loudly when either is missing.
