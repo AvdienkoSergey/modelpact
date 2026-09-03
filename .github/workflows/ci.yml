@@ -72,6 +72,9 @@ jobs:
       - run: npm ci
       # The specs drive the demo, which playwright.config.ts boots itself.
       - run: npm ci --prefix demo
+      # The demo depends on it at `file:` and `predev` builds it, so the
+      # dev server does not start without its own install.
+      - run: npm ci --prefix external/webgpu-provider
       # Chromium only, matching the one project in playwright.config.ts.
       # `--with-deps` pulls the system libraries the runner image lacks.
       - run: npx playwright install --with-deps chromium
@@ -118,6 +121,9 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm ci --prefix demo
+      # The demo depends on it at `file:` and `predev` builds it, so the
+      # dev server does not start without its own install.
+      - run: npm ci --prefix external/webgpu-provider
       - run: npx playwright install --with-deps chromium
 
       - run: curl -fsSL https://ollama.com/install.sh | sh

@@ -215,3 +215,26 @@ test("the chrome entry maps the platform's own answer", async ({ page }) => {
     ).toBeVisible();
   }
 });
+
+/**
+ * A backend from outside the package, in the picker. What it proves is the
+ * installed shape end to end: `modelpact-webgpu` resolved through its own
+ * `exports`, on top of `modelpact` resolved through its own, in a bundle, in a
+ * page. Nothing is downloaded: the branch it lands on is the one that stops
+ * and asks.
+ */
+test("the webgpu entry, from another package, lands in a state", async ({
+  page,
+}) => {
+  await page.selectOption("select", "webgpu");
+  await expect(chip(page)).toHaveText(
+    /^(ready|fetching weights|unavailable)$/,
+    { timeout: 15_000 },
+  );
+  const said = await chip(page).innerText();
+  if (said === "fetching weights") {
+    await expect(
+      page.getByRole("button", { name: "Download them" }),
+    ).toBeVisible();
+  }
+});

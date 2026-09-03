@@ -14,6 +14,7 @@ import {
   makeOllamaProvider,
   makePromptApiProvider,
 } from "modelpact";
+import { makeWebGpuProvider } from "modelpact-webgpu";
 
 /** Long enough to watch arrive, and to reach the stop button before it ends. */
 const reply = (input: string): readonly string[] => {
@@ -48,6 +49,11 @@ export const PROVIDERS = defineProviders({
   // without it `access` answers `unavailable`; on one with it undownloaded,
   // the weights are gigabytes, which is what the consent button exists for.
   "prompt-api": makePromptApiProvider(),
+  // A model in the tab on WebGPU, from a package written outside this one
+  // (`external/webgpu-provider`) and reached the way any third-party backend
+  // is: as a dependency. Weights are hundreds of megabytes into browser
+  // storage, behind the same button as Chrome's.
+  webgpu: makeWebGpuProvider({ model: "SmolLM2-360M-Instruct-q4f16_1-MLC" }),
 });
 
 export type ProviderName = keyof typeof PROVIDERS;
@@ -66,5 +72,7 @@ export function labelOf(name: ProviderName): string {
       return "Ollama · granite4:350m";
     case "prompt-api":
       return "Chrome · built-in model";
+    case "webgpu":
+      return "WebGPU · SmolLM2-360M";
   }
 }
