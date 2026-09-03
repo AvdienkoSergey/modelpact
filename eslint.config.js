@@ -4,8 +4,8 @@ import tseslint from "typescript-eslint";
 import prettier from "eslint-config-prettier";
 
 export default defineConfig(
-  // Vendored MDN copies and the patch payloads are not ours to lint.
-  { ignores: ["docs/**", "patches/**"] },
+  // Vendored MDN copies, patch payloads and build output are not ours to lint.
+  { ignores: ["dist/**", "docs/**", "patches/**"] },
   {
     files: ["**/*.ts", "**/*.js"],
     extends: [
