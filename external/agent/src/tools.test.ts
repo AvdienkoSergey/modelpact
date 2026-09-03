@@ -20,13 +20,13 @@ beforeAll(async () => {
 
 describe("workspace tools", () => {
   test("reads a file inside the workspace", async () => {
-    const said = await readFileTool(root).execute({ path: "hello.txt" });
-    expect(said).toBe("one\ntwo\n");
+    const fileText = await readFileTool(root).execute({ path: "hello.txt" });
+    expect(fileText).toBe("one\ntwo\n");
   });
 
   test("lists a directory, marking the directories", async () => {
-    const said = await listFilesTool(root).execute({ path: "." });
-    expect(said.split("\n")).toEqual(["hello.txt", "inner/"]);
+    const listing = await listFilesTool(root).execute({ path: "." });
+    expect(listing.split("\n")).toEqual(["hello.txt", "inner/"]);
   });
 
   test("a path that climbs out is refused by name", async () => {
@@ -61,8 +61,8 @@ describe("workspace tools", () => {
     const tool = writeNoteTool(root);
     expect(await tool.execute({ line: "first" })).toContain("appended");
     await tool.execute({ line: "second" });
-    const written = await readFile(join(root, "notes.txt"), "utf8");
-    expect(written).toBe("first\nsecond\n");
+    const writtenText = await readFile(join(root, "notes.txt"), "utf8");
+    expect(writtenText).toBe("first\nsecond\n");
   });
 
   test("an empty line is refused before the file is touched", async () => {

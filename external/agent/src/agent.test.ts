@@ -10,9 +10,9 @@ import { describe, expect, test } from "vitest";
 import { makeMockProvider, type AiFailure, type Result } from "modelpact";
 
 import { runAgent, type AgentEvent, type Tool } from "./agent.js";
-import { brainOfSession, type Brain } from "./brain.js";
+import { makeSessionBrain, type Brain } from "./brain.js";
 
-const step = (fields: Partial<Record<string, unknown>>): string =>
+const makeStepReply = (fields: Partial<Record<string, unknown>>): string =>
   JSON.stringify({
     reason: "because",
     action: "answer",
@@ -22,43 +22,45 @@ const step = (fields: Partial<Record<string, unknown>>): string =>
     ...fields,
   });
 
-const callTool = (tool: string, args: Record<string, unknown> = {}): string =>
-  step({ action: "tool", tool, args });
+const makeToolCallReply = (
+  tool: string,
+  args: Record<string, unknown> = {},
+): string => makeStepReply({ action: "tool", tool, args });
 
-const answer = (text: string): string =>
-  step({ action: "answer", answer: text });
+const makeAnswerReply = (text: string): string =>
+  makeStepReply({ action: "answer", answer: text });
 
-interface Scripted {
+interface ScriptedBrain {
   readonly brain: Brain;
-  readonly asked: { input: string; constrained: boolean }[];
+  readonly recordedAsks: { input: string; isConstrained: boolean }[];
 }
 
 /** Replies in order; runs out into a final answer so a runaway test still ends. */
-const scripted = (
+const makeScriptedBrain = (
   replies: readonly string[],
-  refuseSchema = false,
-): Scripted => {
-  const asked: { input: string; constrained: boolean }[] = [];
+  refusesSchema = false,
+): ScriptedBrain => {
+  const recordedAsks: { input: string; isConstrained: boolean }[] = [];
   let index = 0;
   const brain: Brain = {
     ask: (input, options): Promise<Result<string, AiFailure>> => {
-      const constrained = options?.schema !== undefined;
-      if (constrained && refuseSchema)
+      const isConstrained = options?.schema !== undefined;
+      if (isConstrained && refusesSchema)
         return Promise.resolve({
           ok: false,
           error: { kind: "unsupported-config", languages: [] },
         });
-      asked.push({ input, constrained });
-      const reply = replies[index] ?? answer("ran out of script");
+      recordedAsks.push({ input, isConstrained });
+      const reply = replies[index] ?? makeAnswerReply("ran out of script");
       index += 1;
       return Promise.resolve({ ok: true, value: reply });
     },
     record: () => [],
   };
-  return { brain, asked };
+  return { brain, recordedAsks };
 };
 
-const echoTool = (name = "echo"): Tool => ({
+const makeEchoTool = (name = "echo"): Tool => ({
   name,
   description: "Echoes its text back.",
   parameters: { type: "object" } as never,
@@ -67,25 +69,29 @@ const echoTool = (name = "echo"): Tool => ({
 
 describe("the agent loop", () => {
   test("calls a tool, feeds the result back, then answers", async () => {
-    const { brain, asked } = scripted([
-      callTool("echo", { text: "hi" }),
-      answer("all done"),
+    const { brain, recordedAsks } = makeScriptedBrain([
+      makeToolCallReply("echo", { text: "hi" }),
+      makeAnswerReply("all done"),
     ]);
     const events: AgentEvent[] = [];
-    const run = await runAgent(
-      { brain, tools: [echoTool()], onEvent: (e) => events.push(e) },
+    const runResult = await runAgent(
+      {
+        brain,
+        tools: [makeEchoTool()],
+        onEvent: (event) => events.push(event),
+      },
       "do it",
     );
 
-    expect(run.ok).toBe(true);
-    if (!run.ok) return;
-    expect(run.value.text).toBe("all done");
-    expect(run.value.steps).toBe(2);
-    expect(run.value.constrained).toBe(true);
+    expect(runResult.ok).toBe(true);
+    if (!runResult.ok) return;
+    expect(runResult.value.text).toBe("all done");
+    expect(runResult.value.steps).toBe(2);
+    expect(runResult.value.constrained).toBe(true);
     // The tool's output is what the model saw on the second turn.
-    expect(asked[1]?.input).toContain("Result of echo:");
-    expect(asked[1]?.input).toContain("echoed: hi");
-    expect(events.map((e) => e.kind)).toEqual([
+    expect(recordedAsks[1]?.input).toContain("Result of echo:");
+    expect(recordedAsks[1]?.input).toContain("echoed: hi");
+    expect(events.map((event) => event.kind)).toEqual([
       "step",
       "thought",
       "tool",
@@ -97,7 +103,7 @@ describe("the agent loop", () => {
   });
 
   test("a tool that throws comes back as text the model can act on", async () => {
-    const angry: Tool = {
+    const angryTool: Tool = {
       name: "angry",
       description: "Always fails.",
       parameters: { type: "object" } as never,
@@ -105,208 +111,244 @@ describe("the agent loop", () => {
         throw new Error("the disk is on fire");
       },
     };
-    const { brain, asked } = scripted([callTool("angry"), answer("noted")]);
-    const run = await runAgent({ brain, tools: [angry] }, "try it");
+    const { brain, recordedAsks } = makeScriptedBrain([
+      makeToolCallReply("angry"),
+      makeAnswerReply("noted"),
+    ]);
+    const runResult = await runAgent({ brain, tools: [angryTool] }, "try it");
 
-    expect(run.ok).toBe(true);
+    expect(runResult.ok).toBe(true);
     // Handed back, not thrown: the run continues and the model is told why.
-    expect(asked[1]?.input).toContain("ERROR: the disk is on fire");
+    expect(recordedAsks[1]?.input).toContain("ERROR: the disk is on fire");
   });
 
   test("an unknown tool is named back, with the ones that exist", async () => {
-    const { brain, asked } = scripted([callTool("nosuch"), answer("fine")]);
-    await runAgent({ brain, tools: [echoTool()] }, "try it");
-    expect(asked[1]?.input).toContain('there is no tool called "nosuch"');
-    expect(asked[1]?.input).toContain("Tools: echo");
+    const { brain, recordedAsks } = makeScriptedBrain([
+      makeToolCallReply("nosuch"),
+      makeAnswerReply("fine"),
+    ]);
+    await runAgent({ brain, tools: [makeEchoTool()] }, "try it");
+    expect(recordedAsks[1]?.input).toContain(
+      'there is no tool called "nosuch"',
+    );
+    expect(recordedAsks[1]?.input).toContain("Tools: echo");
   });
 
   test("a tool that needs approval is denied when nobody can approve", async () => {
-    const guarded: Tool = { ...echoTool("guarded"), needsApproval: true };
-    const { brain, asked } = scripted([
-      callTool("guarded"),
-      answer("understood"),
+    const guardedTool: Tool = {
+      ...makeEchoTool("guarded"),
+      needsApproval: true,
+    };
+    const { brain, recordedAsks } = makeScriptedBrain([
+      makeToolCallReply("guarded"),
+      makeAnswerReply("understood"),
     ]);
-    const run = await runAgent({ brain, tools: [guarded] }, "try it");
+    const runResult = await runAgent({ brain, tools: [guardedTool] }, "try it");
 
-    expect(run.ok).toBe(true);
+    expect(runResult.ok).toBe(true);
     // No approver means no approval, rather than a default yes.
-    expect(asked[1]?.input).toContain("DENIED");
+    expect(recordedAsks[1]?.input).toContain("DENIED");
   });
 
   test("an approver can let it through, and sees the arguments", async () => {
-    const guarded: Tool = { ...echoTool("guarded"), needsApproval: true };
-    const seen: Record<string, unknown>[] = [];
-    const { brain, asked } = scripted([
-      callTool("guarded", { text: "ok" }),
-      answer("done"),
+    const guardedTool: Tool = {
+      ...makeEchoTool("guarded"),
+      needsApproval: true,
+    };
+    const seenApprovals: Record<string, unknown>[] = [];
+    const { brain, recordedAsks } = makeScriptedBrain([
+      makeToolCallReply("guarded", { text: "ok" }),
+      makeAnswerReply("done"),
     ]);
     await runAgent(
       {
         brain,
-        tools: [guarded],
+        tools: [guardedTool],
         approve: (tool, args) => {
-          seen.push({ name: tool.name, ...args });
+          seenApprovals.push({ name: tool.name, ...args });
           return true;
         },
       },
       "try it",
     );
-    expect(seen).toEqual([{ name: "guarded", text: "ok" }]);
-    expect(asked[1]?.input).toContain("echoed: ok");
+    expect(seenApprovals).toEqual([{ name: "guarded", text: "ok" }]);
+    expect(recordedAsks[1]?.input).toContain("echoed: ok");
   });
 
   test("a long result is cut before it goes back", async () => {
-    const long: Tool = {
-      ...echoTool("long"),
+    const longTool: Tool = {
+      ...makeEchoTool("long"),
       execute: () => "x".repeat(500),
     };
-    const { brain, asked } = scripted([callTool("long"), answer("done")]);
-    await runAgent({ brain, tools: [long], maxResultChars: 100 }, "try it");
-    const fed = asked[1]?.input ?? "";
-    expect(fed).toContain("cut by the harness");
-    expect(fed.length).toBeLessThan(400);
+    const { brain, recordedAsks } = makeScriptedBrain([
+      makeToolCallReply("long"),
+      makeAnswerReply("done"),
+    ]);
+    await runAgent({ brain, tools: [longTool], maxResultChars: 100 }, "try it");
+    const fedInput = recordedAsks[1]?.input ?? "";
+    expect(fedInput).toContain("cut by the harness");
+    expect(fedInput.length).toBeLessThan(400);
   });
 
   test("the same call with the same answer is named as a repeat, not fed back again", async () => {
-    const { brain, asked } = scripted([
-      callTool("echo", { text: "x" }),
-      callTool("echo", { text: "x" }),
-      answer("fine"),
+    const { brain, recordedAsks } = makeScriptedBrain([
+      makeToolCallReply("echo", { text: "x" }),
+      makeToolCallReply("echo", { text: "x" }),
+      makeAnswerReply("fine"),
     ]);
     const events: AgentEvent[] = [];
     await runAgent(
-      { brain, tools: [echoTool()], onEvent: (e) => events.push(e) },
+      {
+        brain,
+        tools: [makeEchoTool()],
+        onEvent: (event) => events.push(event),
+      },
       "loop a bit",
     );
 
     const statuses = events
-      .filter((e) => e.kind === "result")
-      .map((e) => (e.kind === "result" ? e.status : ""));
+      .filter((event) => event.kind === "result")
+      .map((event) => (event.kind === "result" ? event.status : ""));
     expect(statuses).toEqual(["ok", "repeat"]);
     // The second time it is told so, instead of being handed the same text.
-    expect(asked[2]?.input).toContain("Calling it again will not help");
+    expect(recordedAsks[2]?.input).toContain("Calling it again will not help");
   });
 
   test("a tool that answers differently each time is not a repeat", async () => {
     let calls = 0;
-    const clock: Tool = {
-      ...echoTool("clock"),
+    const clockTool: Tool = {
+      ...makeEchoTool("clock"),
       execute: () => `tick ${(calls += 1)}`,
     };
-    const { brain } = scripted([
-      callTool("clock"),
-      callTool("clock"),
-      answer("fine"),
+    const { brain } = makeScriptedBrain([
+      makeToolCallReply("clock"),
+      makeToolCallReply("clock"),
+      makeAnswerReply("fine"),
     ]);
     const events: AgentEvent[] = [];
     await runAgent(
-      { brain, tools: [clock], onEvent: (e) => events.push(e) },
+      { brain, tools: [clockTool], onEvent: (event) => events.push(event) },
       "read the clock twice",
     );
 
     const statuses = events
-      .filter((e) => e.kind === "result")
-      .map((e) => (e.kind === "result" ? e.status : ""));
+      .filter((event) => event.kind === "result")
+      .map((event) => (event.kind === "result" ? event.status : ""));
     // Same arguments, different answers: legitimate, and left alone.
     expect(statuses).toEqual(["ok", "ok"]);
   });
 
   test("a third identical call stops the run, with the call named", async () => {
-    const { brain } = scripted([
-      callTool("echo"),
-      callTool("echo"),
-      callTool("echo"),
-      answer("never reached"),
+    const { brain } = makeScriptedBrain([
+      makeToolCallReply("echo"),
+      makeToolCallReply("echo"),
+      makeToolCallReply("echo"),
+      makeAnswerReply("never reached"),
     ]);
-    const run = await runAgent(
-      { brain, tools: [echoTool()], maxSteps: 20 },
+    const runResult = await runAgent(
+      { brain, tools: [makeEchoTool()], maxSteps: 20 },
       "loop",
     );
-    expect(run.ok).toBe(false);
-    if (run.ok || run.error.kind !== "failed") return;
+    expect(runResult.ok).toBe(false);
+    if (runResult.ok || runResult.error.kind !== "failed") return;
     // Early and specific, rather than burning every step to say the same thing.
-    expect(run.error.detail).toContain("echo(");
-    expect(run.error.detail).toContain("3 times");
+    expect(runResult.error.detail).toContain("echo(");
+    expect(runResult.error.detail).toContain("3 times");
   });
 
   test("a repeated failure is a loop too, which is the one that happens", async () => {
-    const { brain, asked } = scripted([
-      callTool("nosuch"),
-      callTool("nosuch"),
-      answer("fine"),
+    const { brain, recordedAsks } = makeScriptedBrain([
+      makeToolCallReply("nosuch"),
+      makeToolCallReply("nosuch"),
+      makeAnswerReply("fine"),
     ]);
     const events: AgentEvent[] = [];
     await runAgent(
-      { brain, tools: [echoTool()], onEvent: (e) => events.push(e) },
+      {
+        brain,
+        tools: [makeEchoTool()],
+        onEvent: (event) => events.push(event),
+      },
       "ask for a ghost",
     );
 
     const statuses = events
-      .filter((e) => e.kind === "result")
-      .map((e) => (e.kind === "result" ? e.status : ""));
+      .filter((event) => event.kind === "result")
+      .map((event) => (event.kind === "result" ? event.status : ""));
     expect(statuses).toEqual(["error", "repeat"]);
-    expect(asked[2]?.input).toContain("Calling it again will not help");
+    expect(recordedAsks[2]?.input).toContain("Calling it again will not help");
   });
 
   test("running out of steps is a failure with a reason, not a hang", async () => {
     // Different arguments each time, so this is slow progress rather than the
     // stuck detector above; the bound is what ends it.
-    const { brain } = scripted([
-      callTool("echo", { text: "a" }),
-      callTool("echo", { text: "b" }),
-      callTool("echo", { text: "c" }),
+    const { brain } = makeScriptedBrain([
+      makeToolCallReply("echo", { text: "a" }),
+      makeToolCallReply("echo", { text: "b" }),
+      makeToolCallReply("echo", { text: "c" }),
     ]);
-    const run = await runAgent(
-      { brain, tools: [echoTool()], maxSteps: 3 },
+    const runResult = await runAgent(
+      { brain, tools: [makeEchoTool()], maxSteps: 3 },
       "work slowly",
     );
-    expect(run.ok).toBe(false);
-    if (run.ok) return;
-    expect(run.error.kind).toBe("failed");
-    if (run.error.kind === "failed")
-      expect(run.error.detail).toContain("within 3 steps");
+    expect(runResult.ok).toBe(false);
+    if (runResult.ok) return;
+    expect(runResult.error.kind).toBe("failed");
+    if (runResult.error.kind === "failed")
+      expect(runResult.error.detail).toContain("within 3 steps");
   });
 
   test("output outside the shape costs a step and is asked for again", async () => {
-    const { brain, asked } = scripted([
+    const { brain, recordedAsks } = makeScriptedBrain([
       "I think I will just chat instead.",
-      answer("sorry, done"),
+      makeAnswerReply("sorry, done"),
     ]);
-    const run = await runAgent({ brain, tools: [echoTool()] }, "do it");
-    expect(run.ok).toBe(true);
-    if (run.ok) expect(run.value.steps).toBe(2);
-    expect(asked[1]?.input).toContain("not the shape asked for");
+    const runResult = await runAgent(
+      { brain, tools: [makeEchoTool()] },
+      "do it",
+    );
+    expect(runResult.ok).toBe(true);
+    if (runResult.ok) expect(runResult.value.steps).toBe(2);
+    expect(recordedAsks[1]?.input).toContain("not the shape asked for");
   });
 
   test('"call a tool" with no name is a shape error, not a missing tool', async () => {
-    const { brain, asked } = scripted([
-      step({ action: "tool", tool: "" }),
-      answer("recovered"),
+    const { brain, recordedAsks } = makeScriptedBrain([
+      makeStepReply({ action: "tool", tool: "" }),
+      makeAnswerReply("recovered"),
     ]);
-    const run = await runAgent({ brain, tools: [echoTool()] }, "do it");
-    expect(run.ok).toBe(true);
+    const runResult = await runAgent(
+      { brain, tools: [makeEchoTool()] },
+      "do it",
+    );
+    expect(runResult.ok).toBe(true);
     // `granite4:350m` emitted exactly this, and being handed a list of tool
     // names told it nothing it could use.
-    expect(asked[1]?.input).toContain("not the shape asked for");
-    expect(asked[1]?.input).not.toContain("there is no tool called");
+    expect(recordedAsks[1]?.input).toContain("not the shape asked for");
+    expect(recordedAsks[1]?.input).not.toContain("there is no tool called");
   });
 
   test("a refused schema drops the loop into prose, and it still finishes", async () => {
     // `claude -p` refuses schemas, measured. The refusal is the signal, and the
     // object is read out of the text instead.
-    const { brain, asked } = scripted(
-      [`Sure! Here you go:\n\`\`\`json\n${answer("read from prose")}\n\`\`\``],
+    const { brain, recordedAsks } = makeScriptedBrain(
+      [
+        `Sure! Here you go:\n\`\`\`json\n${makeAnswerReply("read from prose")}\n\`\`\``,
+      ],
       true,
     );
-    const run = await runAgent({ brain, tools: [echoTool()] }, "do it");
+    const runResult = await runAgent(
+      { brain, tools: [makeEchoTool()] },
+      "do it",
+    );
 
-    expect(run.ok).toBe(true);
-    if (!run.ok) return;
-    expect(run.value.text).toBe("read from prose");
-    expect(run.value.constrained).toBe(false);
+    expect(runResult.ok).toBe(true);
+    if (!runResult.ok) return;
+    expect(runResult.value.text).toBe("read from prose");
+    expect(runResult.value.constrained).toBe(false);
     // Asked once, unconstrained: the refusal did not cost a step.
-    expect(asked).toHaveLength(1);
-    expect(asked[0]?.constrained).toBe(false);
+    expect(recordedAsks).toHaveLength(1);
+    expect(recordedAsks[0]?.isConstrained).toBe(false);
   });
 
   test("a refusal that is not about the schema ends the run", async () => {
@@ -318,15 +360,18 @@ describe("the agent loop", () => {
         }),
       record: () => [],
     };
-    const run = await runAgent({ brain, tools: [] }, "do it");
-    expect(run.ok).toBe(false);
-    if (!run.ok) expect(run.error.kind).toBe("busy");
+    const runResult = await runAgent({ brain, tools: [] }, "do it");
+    expect(runResult.ok).toBe(false);
+    if (!runResult.ok) expect(runResult.error.kind).toBe("busy");
   });
 
   test("an empty answer is asked for again rather than returned", async () => {
-    const { brain } = scripted([answer("   "), answer("really done")]);
-    const run = await runAgent({ brain, tools: [] }, "do it");
-    expect(run.ok && run.value.text).toBe("really done");
+    const { brain } = makeScriptedBrain([
+      makeAnswerReply("   "),
+      makeAnswerReply("really done"),
+    ]);
+    const runResult = await runAgent({ brain, tools: [] }, "do it");
+    expect(runResult.ok && runResult.value.text).toBe("really done");
   });
 
   test("on a real session, through the adapter", async () => {
@@ -334,19 +379,19 @@ describe("the agent loop", () => {
     // the loop over the library's own session rather than over a stub brain.
     const access = await makeMockProvider({
       delayMs: 1,
-      schemaReply: answer("from the mock"),
+      schemaReply: makeAnswerReply("from the mock"),
     }).access();
     if (access.kind !== "ready") throw new Error("expected ready");
-    const opened = await access.open();
-    if (!opened.ok) throw new Error("expected a session");
+    const sessionResult = await access.open();
+    if (!sessionResult.ok) throw new Error("expected a session");
 
-    const run = await runAgent(
-      { brain: brainOfSession(opened.value), tools: [] },
+    const runResult = await runAgent(
+      { brain: makeSessionBrain(sessionResult.value), tools: [] },
       "say something",
     );
-    expect(run.ok && run.value.text).toBe("from the mock");
+    expect(runResult.ok && runResult.value.text).toBe("from the mock");
     // The turn went through the session, so it is in the session's record.
-    expect(opened.value.history()).toHaveLength(2);
-    opened.value.close();
+    expect(sessionResult.value.history()).toHaveLength(2);
+    sessionResult.value.close();
   });
 });

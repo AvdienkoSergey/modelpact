@@ -3,7 +3,7 @@
 import type { SessionState } from "./03_open.js";
 
 export const closeSession = (state: SessionState): void => {
-  const closing = state.lifetime.close();
-  if (closing === "already-closed") return;
+  const closeOutcome = state.lifetime.close();
+  if (closeOutcome === "already-closed") return;
   state.model.dispose();
 };

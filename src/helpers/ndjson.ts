@@ -19,11 +19,11 @@ export function ndjsonLines(): TransformStream<string, string> {
   let tail = "";
   return new TransformStream({
     transform(chunk, controller) {
-      const parts = (tail + chunk).split("\n");
+      const lines = (tail + chunk).split("\n");
       // `split` always yields at least one element, and the last is what comes
       // before the next newline — "" when the chunk ended on one.
-      tail = parts.pop() ?? "";
-      for (const line of parts) {
+      tail = lines.pop() ?? "";
+      for (const line of lines) {
         // Blank lines are legal NDJSON padding. `\r` is not stripped: it is
         // JSON whitespace, so `JSON.parse` takes a CRLF line as it stands.
         if (line.trim() !== "") controller.enqueue(line);

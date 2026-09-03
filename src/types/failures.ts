@@ -12,7 +12,7 @@ import type { ContextUsage } from "./usage.js";
  * where the reaction would be the same and split where it differs, even when
  * the spec throws one exception for both (`unsupported-config` vs
  * `unsupported-input`). The mechanical name-to-kind mapping lives in
- * `failureFrom`; the kinds with no spec exception behind them (`unsupported`,
+ * `failureFromError`; the kinds with no spec exception behind them (`unsupported`,
  * `busy`, `unknown`) say so in their own docs below.
  *
  * Each failure carries exactly the data its kind implies. `cause` is factored
@@ -82,13 +82,13 @@ export type FailureKind = AiFailure["kind"];
  * that a genuine `TypeError` from a bug in the adapter also lands in
  * `invalid-input`.
  */
-export function failureFrom(error: unknown): AiFailure {
-  const name = error instanceof Error ? error.name : "";
+export function failureFromError(error: unknown): AiFailure {
+  const errorName = error instanceof Error ? error.name : "";
   const detail = error instanceof Error ? error.message : String(error);
-  const fromDom =
+  const isDomException =
     typeof DOMException !== "undefined" && error instanceof DOMException;
 
-  switch (name) {
+  switch (errorName) {
     case "AbortError":
       return { kind: "aborted", reason: detail, cause: error };
     case "InvalidStateError":
@@ -115,7 +115,7 @@ export function failureFrom(error: unknown): AiFailure {
       // frame throws a native one under the same name. Only the former means
       // "the caller sent nonsense". A provider should still convert its own
       // parse errors where they happen rather than let them reach here.
-      return fromDom
+      return isDomException
         ? { kind: "invalid-input", detail, cause: error }
         : { kind: "failed", detail, cause: error };
     case "TypeError":

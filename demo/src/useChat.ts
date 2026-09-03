@@ -26,12 +26,12 @@ export interface Chat {
   readonly access: AccessKind | null;
   readonly record: readonly AiMessage[];
   /** The answer as it arrives; null when no turn is running. */
-  readonly streaming: string | null;
+  readonly streamingAnswer: string | null;
   readonly usage: ContextUsage;
   readonly overflowed: boolean;
   readonly failure: AiFailure | null;
   /** 0..1 while weights are moving, null otherwise. */
-  readonly downloading: number | null;
+  readonly downloadProgress: number | null;
   /** The backend wants weights and has not been told to fetch them. */
   readonly awaitingDownload: boolean;
   readonly ready: boolean;
@@ -47,10 +47,10 @@ type Opening =
   | { readonly kind: "refused"; readonly failure: AiFailure }
   | { readonly kind: "awaiting-download" };
 
-const openingOf = (opened: Result<AiSession, AiFailure>): Opening =>
-  opened.ok
-    ? { kind: "opened", session: opened.value }
-    : { kind: "refused", failure: opened.error };
+const toOpening = (sessionResult: Result<AiSession, AiFailure>): Opening =>
+  sessionResult.ok
+    ? { kind: "opened", session: sessionResult.value }
+    : { kind: "refused", failure: sessionResult.error };
 
 /**
  * Every branch of `ModelAccess`, behind one call.
@@ -61,19 +61,19 @@ const openingOf = (opened: Result<AiSession, AiFailure>): Opening =>
  * anything is awaited, which the callback shape is what enforces.
  */
 async function openSession(
-  name: ProviderName,
+  providerName: ProviderName,
   history: readonly AiMessage[],
-  allowDownload: boolean,
+  isDownloadAllowed: boolean,
   onAccess: (kind: AccessKind) => void,
-  onProgress: (loaded: number) => void,
+  onProgress: (progress: number) => void,
 ): Promise<Opening> {
-  const access = await PROVIDERS[name].access();
-  onAccess(access.kind);
-  if (access.kind === "unavailable")
-    return { kind: "refused", failure: access.reason };
-  if (access.kind === "needs-download") {
-    if (!allowDownload) return { kind: "awaiting-download" };
-    const opened = await access.open(
+  const modelAccess = await PROVIDERS[providerName].access();
+  onAccess(modelAccess.kind);
+  if (modelAccess.kind === "unavailable")
+    return { kind: "refused", failure: modelAccess.reason };
+  if (modelAccess.kind === "needs-download") {
+    if (!isDownloadAllowed) return { kind: "awaiting-download" };
+    const sessionResult = await modelAccess.open(
       (monitor) => {
         monitor.ondownloadprogress = (event) => {
           onProgress(event.loaded / event.total);
@@ -81,36 +81,38 @@ async function openSession(
       },
       { history },
     );
-    return openingOf(opened);
+    return toOpening(sessionResult);
   }
-  return openingOf(await access.open({ history }));
+  return toOpening(await modelAccess.open({ history }));
 }
 
-export function useChat(name: ProviderName): Chat {
+export function useChat(providerName: ProviderName): Chat {
   // The conversation a session is opened on. Set by storage on load, and again
   // whenever another tab writes — which is what reopens the session below.
-  const [seed, setSeed] = useState<readonly AiMessage[]>(loadRecord);
-  const [record, setRecord] = useState<readonly AiMessage[]>(seed);
-  const [streaming, setStreaming] = useState<string | null>(null);
+  const [seedRecord, setSeedRecord] =
+    useState<readonly AiMessage[]>(loadRecord);
+  const [record, setRecord] = useState<readonly AiMessage[]>(seedRecord);
+  const [streamingAnswer, setStreamingAnswer] = useState<string | null>(null);
   const [usage, setUsage] = useState<ContextUsage>({ kind: "unknown" });
   const [overflowed, setOverflowed] = useState(false);
   const [failure, setFailure] = useState<AiFailure | null>(null);
-  const [downloading, setDownloading] = useState<number | null>(null);
+  const [downloadProgress, setDownloadProgress] = useState<number | null>(null);
   const [access, setAccess] = useState<AccessKind | null>(null);
   const [awaitingDownload, setAwaitingDownload] = useState(false);
   // The name it was granted for, not a flag: switching backends cannot carry
   // an answer given about a different one.
-  const [allowedFor, setAllowedFor] = useState<ProviderName | null>(null);
+  const [downloadAllowedFor, setDownloadAllowedFor] =
+    useState<ProviderName | null>(null);
   const [ready, setReady] = useState(false);
 
-  const session = useRef<AiSession | null>(null);
-  const turn = useRef<AbortController | null>(null);
+  const sessionRef = useRef<AiSession | null>(null);
+  const turnRef = useRef<AbortController | null>(null);
 
-  useEffect(() => watchRecord(setSeed), []);
+  useEffect(() => watchRecord(setSeedRecord), []);
 
   useEffect(() => {
-    let current: AiSession | null = null;
-    let live = true;
+    let openedSession: AiSession | null = null;
+    let isLive = true;
     setReady(false);
     setAccess(null);
     setAwaitingDownload(false);
@@ -122,18 +124,18 @@ export function useChat(name: ProviderName): Chat {
 
     void (async () => {
       const opening = await openSession(
-        name,
-        seed,
-        allowedFor === name,
+        providerName,
+        seedRecord,
+        downloadAllowedFor === providerName,
         (kind) => {
-          if (live) setAccess(kind);
+          if (isLive) setAccess(kind);
         },
-        (loaded) => {
-          if (live) setDownloading(loaded);
+        (progress) => {
+          if (isLive) setDownloadProgress(progress);
         },
       );
-      setDownloading(null);
-      if (!live) {
+      setDownloadProgress(null);
+      if (!isLive) {
         // Unmounted while opening, or the effect re-ran: this session belongs
         // to nobody, and leaving it open would leave its backend open too.
         if (opening.kind === "opened") opening.session.close();
@@ -147,50 +149,50 @@ export function useChat(name: ProviderName): Chat {
         setFailure(opening.failure);
         return;
       }
-      current = opening.session;
-      current.oncontextoverflow = () => {
+      openedSession = opening.session;
+      openedSession.oncontextoverflow = () => {
         setOverflowed(true);
       };
-      session.current = current;
-      setRecord(current.history());
-      setUsage(current.usage());
+      sessionRef.current = openedSession;
+      setRecord(openedSession.history());
+      setUsage(openedSession.usage());
       setReady(true);
     })();
 
     return () => {
-      live = false;
-      current?.close();
-      session.current = null;
+      isLive = false;
+      openedSession?.close();
+      sessionRef.current = null;
     };
-  }, [name, seed, allowedFor]);
+  }, [providerName, seedRecord, downloadAllowedFor]);
 
   const send = useCallback((input: string) => {
-    const current = session.current;
-    if (current === null) return;
+    const currentSession = sessionRef.current;
+    if (currentSession === null) return;
 
-    const controller = new AbortController();
-    turn.current = controller;
+    const turnController = new AbortController();
+    turnRef.current = turnController;
     setFailure(null);
-    setStreaming("");
+    setStreamingAnswer("");
 
     void (async () => {
       try {
-        const started = await current.promptStream(input, {
-          signal: controller.signal,
+        const streamResult = await currentSession.promptStream(input, {
+          signal: turnController.signal,
         });
-        if (!started.ok) {
-          setFailure(started.error);
+        if (!streamResult.ok) {
+          setFailure(streamResult.error);
           return;
         }
         // A reader loop, not `for await`: stream iteration is not portable, and
         // leaving such a loop early cancels the generation.
-        const reader = started.value.getReader();
+        const reader = streamResult.value.getReader();
         let answer = "";
         for (;;) {
-          const next = await reader.read();
-          if (next.done) break;
-          answer += next.value;
-          setStreaming(answer);
+          const chunk = await reader.read();
+          if (chunk.done) break;
+          answer += chunk.value;
+          setStreamingAnswer(answer);
         }
       } catch (error) {
         // The one place the library throws: a reader has nowhere to put a
@@ -199,41 +201,41 @@ export function useChat(name: ProviderName): Chat {
           error instanceof AiError ? error.failure : { kind: "unknown" },
         );
       } finally {
-        setStreaming(null);
-        turn.current = null;
+        setStreamingAnswer(null);
+        turnRef.current = null;
         // The record is the library's answer to what happened, so it is read
         // rather than assembled here: an interrupted turn is simply not in it.
-        const next = current.history();
-        setRecord(next);
-        setUsage(current.usage());
-        saveRecord(next);
+        const nextRecord = currentSession.history();
+        setRecord(nextRecord);
+        setUsage(currentSession.usage());
+        saveRecord(nextRecord);
       }
     })();
   }, []);
 
   const stop = useCallback(() => {
-    turn.current?.abort();
+    turnRef.current?.abort();
   }, []);
 
   const startDownload = useCallback(() => {
-    setAllowedFor(name);
-  }, [name]);
+    setDownloadAllowedFor(providerName);
+  }, [providerName]);
 
   const reset = useCallback(() => {
-    turn.current?.abort();
+    turnRef.current?.abort();
     clearRecord();
-    // A new seed reopens the session; the old one is closed by the cleanup.
-    setSeed([]);
+    // A new seed record reopens the session; the old one is closed by the cleanup.
+    setSeedRecord([]);
   }, []);
 
   return {
     access,
     record,
-    streaming,
+    streamingAnswer,
     usage,
     overflowed,
     failure,
-    downloading,
+    downloadProgress,
     awaitingDownload,
     ready,
     send,

@@ -36,7 +36,7 @@ export type {
 } from "./types/messages.js";
 export {
   AiError,
-  failureFrom,
+  failureFromError,
   type AiFailure,
   type FailureKind,
 } from "./types/failures.js";
@@ -63,7 +63,7 @@ export type {
   Availability,
   ConnectOptions,
   GenerateRequest,
-  Model,
   ModelBackend,
+  ModelConnection,
 } from "./types/backend.js";
 export { ndjsonLines } from "./helpers/ndjson.js";

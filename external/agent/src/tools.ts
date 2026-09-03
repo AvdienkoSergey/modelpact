@@ -14,35 +14,37 @@ import { jsonSchema, type JsonSchema } from "modelpact";
 
 import type { Tool } from "./agent.js";
 
-const schemaOf = (shape: Record<string, unknown>): JsonSchema => {
-  const built = jsonSchema(shape);
-  if (built === null) throw new Error("not a schema");
-  return built;
+const toSchema = (shape: Record<string, unknown>): JsonSchema => {
+  const builtSchema = jsonSchema(shape);
+  if (builtSchema === null) throw new Error("not a schema");
+  return builtSchema;
 };
 
-const PATH_ARG = schemaOf({
+const PATH_ARG = toSchema({
   type: "object",
   properties: { path: { type: "string" } },
   required: ["path"],
   additionalProperties: false,
 });
 
-const NO_ARGS = schemaOf({
+const NO_ARGS = toSchema({
   type: "object",
   properties: {},
   additionalProperties: false,
 });
 
 /** Inside, or refused by name. `..` and an absolute path both land outside and are caught the same way. */
-const within = (root: string, asked: unknown): string => {
-  if (typeof asked !== "string" || asked === "")
+const resolveWithin = (root: string, askedPath: unknown): string => {
+  if (typeof askedPath !== "string" || askedPath === "")
     throw new Error("path must be a non-empty string");
-  const full = resolve(root, asked);
-  const step = relative(root, full);
-  const escapes =
-    step.startsWith(`..${sep}`) || step === ".." || step.startsWith(sep);
-  if (escapes) throw new Error(`path leaves the workspace: ${asked}`);
-  return full;
+  const fullPath = resolve(root, askedPath);
+  const relativePath = relative(root, fullPath);
+  const isOutsideRoot =
+    relativePath.startsWith(`..${sep}`) ||
+    relativePath === ".." ||
+    relativePath.startsWith(sep);
+  if (isOutsideRoot) throw new Error(`path leaves the workspace: ${askedPath}`);
+  return fullPath;
 };
 
 export const readFileTool = (root: string): Tool => ({
@@ -50,11 +52,11 @@ export const readFileTool = (root: string): Tool => ({
   description: "Read a UTF-8 text file inside the workspace. Args: { path }.",
   parameters: PATH_ARG,
   execute: async (args) => {
-    const full = within(root, args["path"]);
-    const found = await stat(full);
-    if (found.isDirectory())
+    const fullPath = resolveWithin(root, args["path"]);
+    const entryStats = await stat(fullPath);
+    if (entryStats.isDirectory())
       throw new Error("that is a directory; use listFiles");
-    return readFile(full, "utf8");
+    return readFile(fullPath, "utf8");
   },
 });
 
@@ -64,11 +66,11 @@ export const listFilesTool = (root: string): Tool => ({
     'List the entries of a directory inside the workspace. Args: { path }, "." for the root.',
   parameters: PATH_ARG,
   execute: async (args) => {
-    const full = within(root, args["path"] ?? ".");
-    const held = await readdir(full, { withFileTypes: true });
-    if (held.length === 0) return "(empty)";
-    const lines = held.map((one) =>
-      one.isDirectory() ? `${one.name}/` : one.name,
+    const fullPath = resolveWithin(root, args["path"] ?? ".");
+    const entries = await readdir(fullPath, { withFileTypes: true });
+    if (entries.length === 0) return "(empty)";
+    const lines = entries.map((entry) =>
+      entry.isDirectory() ? `${entry.name}/` : entry.name,
     );
     return lines.sort().join("\n");
   },
@@ -87,7 +89,7 @@ export const listFilesTool = (root: string): Tool => ({
 export const writeNoteTool = (root: string): Tool => ({
   name: "writeNote",
   description: "Append a line to notes.txt in the workspace. Args: { line }.",
-  parameters: schemaOf({
+  parameters: toSchema({
     type: "object",
     properties: { line: { type: "string" } },
     required: ["line"],
@@ -98,8 +100,8 @@ export const writeNoteTool = (root: string): Tool => ({
     const line = args["line"];
     if (typeof line !== "string" || line === "")
       throw new Error("line must be a non-empty string");
-    const full = within(root, "notes.txt");
-    await appendFile(full, `${line}\n`, "utf8");
+    const fullPath = resolveWithin(root, "notes.txt");
+    await appendFile(fullPath, `${line}\n`, "utf8");
     return `appended to notes.txt: ${line}`;
   },
 });

@@ -5,11 +5,11 @@
  * not, because it never reaches the `.d.ts`.
  */
 import {
-  brainOfChat,
-  brainOfSession,
   listFilesTool,
+  makeChatBrain,
   makeClaudeCliBackend,
   makeClaudeCliProvider,
+  makeSessionBrain,
   orchestrate,
   readFileTool,
   runAgent,
@@ -32,11 +32,11 @@ import {
 } from "../dist/index.js";
 
 export const values = {
-  brainOfChat,
-  brainOfSession,
   listFilesTool,
+  makeChatBrain,
   makeClaudeCliBackend,
   makeClaudeCliProvider,
+  makeSessionBrain,
   orchestrate,
   readFileTool,
   runAgent,

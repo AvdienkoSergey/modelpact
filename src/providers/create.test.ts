@@ -10,13 +10,13 @@ import { ok } from "../types/foundations.js";
 import { AiError } from "../types/failures.js";
 import type { AiMessage } from "../types/messages.js";
 import type { AiSession, SessionOptions } from "../types/session.js";
-import type { Model } from "../types/backend.js";
+import type { ModelConnection } from "../types/backend.js";
 import { createProvider } from "./create.js";
 
-const streamOf = (...parts: string[]): ReadableStream<string> =>
+const makeStream = (...chunks: string[]): ReadableStream<string> =>
   new ReadableStream<string>({
     start: (controller) => {
-      for (const part of parts) controller.enqueue(part);
+      for (const chunk of chunks) controller.enqueue(chunk);
       controller.close();
     },
   });
@@ -30,14 +30,16 @@ const failingStream = (): ReadableStream<string> =>
     },
   });
 
-const modelOf = (generate: Model["generate"]): Model => ({
-  generate,
+const makeModel = (
+  generateStream: ModelConnection["generateStream"],
+): ModelConnection => ({
+  generateStream,
   usage: () => ({ kind: "unknown" }),
   dispose: () => undefined,
 });
 
-const openWith = async (
-  model: Model,
+const openSessionWith = async (
+  model: ModelConnection,
   options?: SessionOptions,
 ): Promise<AiSession> => {
   const provider = createProvider({
@@ -48,69 +50,72 @@ const openWith = async (
   });
   const access = await provider.access();
   if (access.kind !== "ready") throw new Error("expected ready");
-  const opened = await access.open(options);
-  if (!opened.ok) throw new Error("expected a session");
-  return opened.value;
+  const sessionResult = await access.open(options);
+  if (!sessionResult.ok) throw new Error("expected a session");
+  return sessionResult.value;
 };
 
-const drain = async (stream: ReadableStream<string>): Promise<string> => {
+const drainStream = async (stream: ReadableStream<string>): Promise<string> => {
   const reader = stream.getReader();
-  const parts: string[] = [];
+  const answerParts: string[] = [];
   for (;;) {
     const { done, value } = await reader.read();
-    if (done) return parts.join("");
-    parts.push(value);
+    if (done) return answerParts.join("");
+    answerParts.push(value);
   }
 };
 
 describe("lifecycle", () => {
   test("a stream the backend errors is an AiError, and the session is free after it", async () => {
     let calls = 0;
-    const session = await openWith(
-      modelOf(() => {
+    const session = await openSessionWith(
+      makeModel(() => {
         calls += 1;
-        const stream = calls === 1 ? failingStream() : streamOf("fine");
+        const stream = calls === 1 ? failingStream() : makeStream("fine");
         return Promise.resolve(ok(stream));
       }),
     );
 
-    const first = await session.promptStream("hello");
-    if (!first.ok) throw new Error("expected a stream");
-    const caught = await drain(first.value).catch((error: unknown) => error);
-    expect(caught).toBeInstanceOf(AiError);
-    if (caught instanceof AiError) expect(caught.failure.kind).toBe("aborted");
+    const streamResult = await session.promptStream("hello");
+    if (!streamResult.ok) throw new Error("expected a stream");
+    const caughtError = await drainStream(streamResult.value).catch(
+      (error: unknown) => error,
+    );
+    expect(caughtError).toBeInstanceOf(AiError);
+    if (caughtError instanceof AiError)
+      expect(caughtError.failure.kind).toBe("aborted");
 
-    const second = await session.prompt("again");
-    expect(second).toEqual(ok("fine"));
+    const answerResult = await session.prompt("again");
+    expect(answerResult).toEqual(ok("fine"));
     session.close();
   });
 
   test("a backend that throws is answered in the vocabulary", async () => {
-    const session = await openWith(
-      modelOf(() => {
+    const session = await openSessionWith(
+      makeModel(() => {
         throw new DOMException("boom", "OperationError");
       }),
     );
-    const answer = await session.prompt("hello");
-    expect(answer.ok).toBe(false);
-    if (!answer.ok) expect(answer.error.kind).toBe("failed");
+    const answerResult = await session.prompt("hello");
+    expect(answerResult.ok).toBe(false);
+    if (!answerResult.ok) expect(answerResult.error.kind).toBe("failed");
     session.close();
   });
 
   test("the record reaches the backend without this turn's input", async () => {
-    const seen: (readonly AiMessage[])[] = [];
-    const session = await openWith(
-      modelOf((input, request) => {
-        seen.push(request.history);
-        return Promise.resolve(ok(streamOf(`re: ${input}`)));
+    const seenHistories: (readonly AiMessage[])[] = [];
+    const session = await openSessionWith(
+      makeModel((input, request) => {
+        seenHistories.push(request.history);
+        return Promise.resolve(ok(makeStream(`re: ${input}`)));
       }),
       { history: [{ role: "user", content: "earlier" }] },
     );
 
     await session.prompt("first");
     await session.prompt("second");
-    expect(seen[0]).toEqual([{ role: "user", content: "earlier" }]);
-    expect(seen[1]).toEqual([
+    expect(seenHistories[0]).toEqual([{ role: "user", content: "earlier" }]);
+    expect(seenHistories[1]).toEqual([
       { role: "user", content: "earlier" },
       { role: "user", content: "first" },
       { role: "assistant", content: "re: first" },
@@ -120,20 +125,20 @@ describe("lifecycle", () => {
 
   test("the whole-answer call is preferred by prompt and skipped by promptStream", async () => {
     let streamed = 0;
-    const model: Model = {
-      ...modelOf(() => {
+    const model: ModelConnection = {
+      ...makeModel(() => {
         streamed += 1;
-        return Promise.resolve(ok(streamOf("a", "b")));
+        return Promise.resolve(ok(makeStream("a", "b")));
       }),
       generateWhole: () => Promise.resolve(ok("whole")),
     };
-    const session = await openWith(model);
+    const session = await openSessionWith(model);
 
     expect(await session.prompt("hello")).toEqual(ok("whole"));
     expect(streamed).toBe(0);
-    const started = await session.promptStream("hello");
-    if (!started.ok) throw new Error("expected a stream");
-    expect(await drain(started.value)).toBe("ab");
+    const streamResult = await session.promptStream("hello");
+    if (!streamResult.ok) throw new Error("expected a stream");
+    expect(await drainStream(streamResult.value)).toBe("ab");
     expect(streamed).toBe(1);
     session.close();
   });

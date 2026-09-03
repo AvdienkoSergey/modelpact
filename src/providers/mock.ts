@@ -12,7 +12,7 @@ import type {
   Availability,
   ConnectOptions,
   GenerateRequest,
-  Model,
+  ModelConnection,
   ModelBackend,
 } from "../types/backend.js";
 import {
@@ -84,7 +84,7 @@ const countTokens = (text: string): number => {
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
-class MockModel implements Model {
+class MockModel implements ModelConnection {
   readonly #contextWindow: number;
   readonly #reply: (input: string) => readonly string[];
   readonly #schemaReply: string | undefined;
@@ -102,7 +102,7 @@ class MockModel implements Model {
     }
   }
 
-  readonly generate = (
+  readonly generateStream = (
     input: string,
     request: GenerateRequest,
   ): Promise<Result<ReadableStream<string>, AiFailure>> => {
@@ -180,7 +180,7 @@ const reportDownload = async (
 const connectMock = async (
   config: MockConfig,
   options: ConnectOptions,
-): Promise<Result<Model, AiFailure>> => {
+): Promise<Result<ModelConnection, AiFailure>> => {
   if (config.access === "needs-download") {
     const steps = config.downloadSteps ?? DEFAULTS.downloadSteps;
     const delayMs = config.delayMs ?? DEFAULTS.delayMs;

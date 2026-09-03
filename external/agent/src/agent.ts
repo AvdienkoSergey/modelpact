@@ -112,9 +112,9 @@ const STEP_SHAPE = {
 };
 
 const STEP_SCHEMA: JsonSchema = (() => {
-  const built = jsonSchema(STEP_SHAPE);
-  if (built === null) throw new Error("the step shape is not a schema");
-  return built;
+  const builtSchema = jsonSchema(STEP_SHAPE);
+  if (builtSchema === null) throw new Error("the step shape is not a schema");
+  return builtSchema;
 })();
 
 interface Step {
@@ -143,28 +143,28 @@ const parseObject = (text: string): Record<string, unknown> | null => {
 
 /** Whole first, then the widest braces in it: prose mode wraps the object in words or a fence. */
 const readObject = (text: string): Record<string, unknown> | null => {
-  const whole = parseObject(text.trim());
-  if (whole !== null) return whole;
-  const start = text.indexOf("{");
-  const end = text.lastIndexOf("}");
-  if (start < 0 || end <= start) return null;
-  return parseObject(text.slice(start, end + 1));
+  const wholeObject = parseObject(text.trim());
+  if (wholeObject !== null) return wholeObject;
+  const firstBrace = text.indexOf("{");
+  const lastBrace = text.lastIndexOf("}");
+  if (firstBrace < 0 || lastBrace <= firstBrace) return null;
+  return parseObject(text.slice(firstBrace, lastBrace + 1));
 };
 
 const readStep = (text: string): Step | null => {
-  const held = readObject(text);
-  if (held === null) return null;
-  const action = held["action"];
+  const fields = readObject(text);
+  if (fields === null) return null;
+  const action = fields["action"];
   if (action !== "tool" && action !== "answer") return null;
   // "call a tool" with no name is malformed output, not a call to a tool that
   // does not exist; the repair prompt is a better answer than a list of names.
-  if (action === "tool" && asText(held["tool"]).trim() === "") return null;
+  if (action === "tool" && asText(fields["tool"]).trim() === "") return null;
   return {
-    reason: asText(held["reason"]),
+    reason: asText(fields["reason"]),
     action,
-    tool: asText(held["tool"]),
-    args: asRecord(held["args"]) ?? {},
-    answer: asText(held["answer"]),
+    tool: asText(fields["tool"]),
+    args: asRecord(fields["args"]) ?? {},
+    answer: asText(fields["answer"]),
   };
 };
 
@@ -177,7 +177,7 @@ const truncate = (text: string, maxChars: number): string =>
     : `${text.slice(0, maxChars)}\n…[cut by the harness]`;
 
 /** A refusal of the schema, as against a refusal of the question. */
-const refusedTheSchema = (failure: AiFailure): boolean =>
+const isSchemaRefusal = (failure: AiFailure): boolean =>
   failure.kind === "unsupported-config" || failure.kind === "unsupported";
 
 const describeTools = (tools: readonly Tool[]): string => {
@@ -192,7 +192,7 @@ const describeTools = (tools: readonly Tool[]): string => {
 const SHAPE_REMINDER =
   'Answer with one JSON object and nothing else: {"reason": why, "action": "tool" or "answer", "tool": the name or "", "args": an object, "answer": the final text or ""}.';
 
-const openingPrompt = (
+const renderOpeningPrompt = (
   task: string,
   tools: readonly Tool[],
   instructions: string,
@@ -209,9 +209,9 @@ const openingPrompt = (
  * is only when the answer is identical too that the loop is real, and then the
  * model is told so instead of being handed the same text again.
  */
-type Seen = Map<string, string>;
+type SeenResults = Map<string, string>;
 
-const seenKey = (step: Step): string =>
+const toCallKey = (step: Step): string =>
   `${step.tool}(${JSON.stringify(step.args)})`;
 
 /**
@@ -222,15 +222,15 @@ const seenKey = (step: Step): string =>
  * `granite4:350m` asked for a tool that does not exist eight times running,
  * and was handed the list of real ones eight times.
  */
-const STUCK_AT = 2;
+const STUCK_LIMIT = 2;
 
 const runTool = async (
   step: Step,
   parts: AgentParts,
 ): Promise<{ status: ResultStatus; rendered: string }> => {
-  const tool = parts.tools.find((one) => one.name === step.tool);
+  const tool = parts.tools.find((candidate) => candidate.name === step.tool);
   if (tool === undefined) {
-    const names = parts.tools.map((one) => one.name).join(", ");
+    const names = parts.tools.map((candidate) => candidate.name).join(", ");
     return {
       status: "error",
       rendered: `ERROR: there is no tool called "${step.tool}". Tools: ${names}`,
@@ -247,10 +247,13 @@ const runTool = async (
       };
   }
   try {
-    const said = await tool.execute(step.args);
+    const toolOutput = await tool.execute(step.args);
     return {
       status: "ok",
-      rendered: truncate(said, parts.maxResultChars ?? DEFAULTS.maxResultChars),
+      rendered: truncate(
+        toolOutput,
+        parts.maxResultChars ?? DEFAULTS.maxResultChars,
+      ),
     };
   } catch (error) {
     // Handed back rather than thrown: a model that is told what went wrong can
@@ -265,87 +268,97 @@ export async function runAgent(
 ): Promise<Result<AgentRun, AiFailure>> {
   const maxSteps = parts.maxSteps ?? DEFAULTS.maxSteps;
   const emit = (event: AgentEvent): void => parts.onEvent?.(event);
-  let constrained = true;
+  let isConstrained = true;
 
   const think = async (input: string): Promise<Result<string, AiFailure>> => {
-    if (constrained) {
-      const asked = await parts.brain.ask(input, { schema: STEP_SCHEMA });
-      if (asked.ok) return asked;
-      if (!refusedTheSchema(asked.error)) return asked;
+    if (isConstrained) {
+      const answerResult = await parts.brain.ask(input, {
+        schema: STEP_SCHEMA,
+      });
+      if (answerResult.ok) return answerResult;
+      if (!isSchemaRefusal(answerResult.error)) return answerResult;
       // The contract's own answer, put to use: honoured or refused, never
       // ignored. Refused means ask again in prose and read the object out.
-      constrained = false;
+      isConstrained = false;
     }
     return parts.brain.ask(input);
   };
 
-  let input = openingPrompt(
+  let input = renderOpeningPrompt(
     task,
     parts.tools,
     parts.instructions ?? INSTRUCTIONS,
   );
 
-  const seen: Seen = new Map();
-  let stuck = 0;
+  const seenResults: SeenResults = new Map();
+  let stuckCount = 0;
 
-  for (let step = 1; step <= maxSteps; step += 1) {
-    emit({ kind: "step", step, maxSteps });
-    const said = await think(input);
-    if (!said.ok) return said;
+  for (let stepNumber = 1; stepNumber <= maxSteps; stepNumber += 1) {
+    emit({ kind: "step", step: stepNumber, maxSteps });
+    const thoughtResult = await think(input);
+    if (!thoughtResult.ok) return thoughtResult;
 
-    const decided = readStep(said.value);
-    if (decided === null) {
+    const decidedStep = readStep(thoughtResult.value);
+    if (decidedStep === null) {
       // A repair costs a step, which keeps the bound honest.
       input = `That was not the shape asked for. ${SHAPE_REMINDER}`;
       continue;
     }
-    emit({ kind: "thought", step, reason: decided.reason });
+    emit({ kind: "thought", step: stepNumber, reason: decidedStep.reason });
 
-    if (decided.action === "answer") {
-      const text = decided.answer.trim();
+    if (decidedStep.action === "answer") {
+      const text = decidedStep.answer.trim();
       if (text === "") {
         input =
           'The answer was empty. Give the final text in "answer", or call a tool.';
         continue;
       }
-      emit({ kind: "answer", step, text });
-      return { ok: true, value: { text, steps: step, constrained } };
+      emit({ kind: "answer", step: stepNumber, text });
+      return {
+        ok: true,
+        value: { text, steps: stepNumber, constrained: isConstrained },
+      };
     }
 
-    emit({ kind: "tool", step, name: decided.tool, args: decided.args });
-    const outcome = await runTool(decided, parts);
+    emit({
+      kind: "tool",
+      step: stepNumber,
+      name: decidedStep.tool,
+      args: decidedStep.args,
+    });
+    const toolOutcome = await runTool(decidedStep, parts);
 
-    const key = seenKey(decided);
+    const callKey = toCallKey(decidedStep);
     // Any status, not only `ok`: a refusal repeated word for word is a loop as
     // surely as an answer repeated word for word, and it is the one that
     // actually happened.
-    const repeated = seen.get(key) === outcome.rendered;
-    seen.set(key, outcome.rendered);
-    stuck = repeated ? stuck + 1 : 0;
+    const isRepeat = seenResults.get(callKey) === toolOutcome.rendered;
+    seenResults.set(callKey, toolOutcome.rendered);
+    stuckCount = isRepeat ? stuckCount + 1 : 0;
 
     emit({
       kind: "result",
-      step,
-      name: decided.tool,
-      status: repeated ? "repeat" : outcome.status,
-      preview: outcome.rendered.slice(0, 200),
+      step: stepNumber,
+      name: decidedStep.tool,
+      status: isRepeat ? "repeat" : toolOutcome.status,
+      preview: toolOutcome.rendered.slice(0, 200),
     });
     // The contract carries user and assistant turns and nothing else, so a
     // tool result goes back as the next user message. That is the whole of the
     // mapping, and it is why no tool protocol was needed in the contract.
-    if (stuck >= STUCK_AT) {
+    if (stuckCount >= STUCK_LIMIT) {
       return {
         ok: false,
         error: {
           kind: "failed",
-          detail: `the agent called ${key} ${stuck + 1} times for the same answer and did not move on`,
+          detail: `the agent called ${callKey} ${stuckCount + 1} times for the same answer and did not move on`,
         },
       };
     }
 
-    input = repeated
-      ? `${key} was called before and has just given exactly the same answer:\n${outcome.rendered}\n\nCalling it again will not help. Use that answer now, or call a different tool, or finish. ${SHAPE_REMINDER}`
-      : `Result of ${decided.tool}:\n${outcome.rendered}\n\n${SHAPE_REMINDER}`;
+    input = isRepeat
+      ? `${callKey} was called before and has just given exactly the same answer:\n${toolOutcome.rendered}\n\nCalling it again will not help. Use that answer now, or call a different tool, or finish. ${SHAPE_REMINDER}`
+      : `Result of ${decidedStep.tool}:\n${toolOutcome.rendered}\n\n${SHAPE_REMINDER}`;
   }
 
   return {

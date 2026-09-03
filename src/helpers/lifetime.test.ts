@@ -5,18 +5,19 @@ import { createSessionLifetime } from "./lifetime.js";
 /** A begun turn or a thrown test: the failure branch is asserted where it is the subject. */
 const beginOrThrow = (
   lifetime: ReturnType<typeof createSessionLifetime>,
-  call: "prompt" | "promptStream",
+  callName: "prompt" | "promptStream",
   signal?: AbortSignal,
 ) => {
-  const begun = lifetime.begin(call, signal);
-  if (!begun.ok) throw new Error(`expected a turn, got ${begun.error.kind}`);
-  return begun.value;
+  const turnResult = lifetime.begin(callName, signal);
+  if (!turnResult.ok)
+    throw new Error(`expected a turn, got ${turnResult.error.kind}`);
+  return turnResult.value;
 };
 
 describe("session lifetime", () => {
   test("a fresh session opens the door and hands over a live signal", () => {
     const turn = beginOrThrow(createSessionLifetime(), "prompt");
-    expect(turn.call).toBe("prompt");
+    expect(turn.callName).toBe("prompt");
     expect(turn.signal.aborted).toBe(false);
   });
 

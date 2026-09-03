@@ -27,9 +27,9 @@ export function contextUsage(used: Tokens, total: number): ContextUsage {
   // Usage is allowed to pass the window — that is what fires `contextoverflow`
   // — but "minus three tokens left" is not a value worth carrying.
   const remaining = tokens(Math.max(0, total - used));
-  const asTokens = tokens(total);
+  const totalTokens = tokens(total);
   // A fractional or negative total means the API returned something
   // unexpected; saying "unknown" beats inventing a number.
-  if (asTokens === null || remaining === null) return { kind: "unknown" };
-  return { kind: "bounded", used, total: asTokens, remaining };
+  if (totalTokens === null || remaining === null) return { kind: "unknown" };
+  return { kind: "bounded", used, total: totalTokens, remaining };
 }

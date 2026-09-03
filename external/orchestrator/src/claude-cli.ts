@@ -33,7 +33,7 @@ import {
   type ConnectOptions,
   type ContextUsage,
   type GenerateRequest,
-  type Model,
+  type ModelConnection,
   type ModelBackend,
   type Result,
 } from "modelpact";
@@ -68,9 +68,9 @@ export interface ClaudeCliConfig {
 
 const DEFAULTS = { contextWindow: 200_000, command: "claude" };
 
-const ZERO = tokens(0) ?? (0 as never);
+const ZERO_TOKENS = tokens(0) ?? (0 as never);
 
-const spawnReal =
+const makeRealSpawner =
   (command: string): Spawner =>
   (args) => {
     const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
@@ -88,8 +88,8 @@ const spawnReal =
     };
   };
 
-const spawnerOf = (config: ClaudeCliConfig): Spawner =>
-  config.spawn ?? spawnReal(config.command ?? DEFAULTS.command);
+const getSpawner = (config: ClaudeCliConfig): Spawner =>
+  config.spawn ?? makeRealSpawner(config.command ?? DEFAULTS.command);
 
 const asRecord = (value: unknown): Record<string, unknown> | null =>
   typeof value === "object" && value !== null && !Array.isArray(value)
@@ -107,15 +107,15 @@ const parseJson = (text: string): unknown => {
   }
 };
 
-const readAll = async (
+const readAllText = async (
   stream: ReadableStream<BufferSource>,
 ): Promise<string> => {
   const reader = stream.pipeThrough(new TextDecoderStream()).getReader();
   let text = "";
   for (;;) {
-    const next = await reader.read();
-    if (next.done) return text;
-    text += next.value;
+    const chunk = await reader.read();
+    if (chunk.done) return text;
+    text += chunk.value;
   }
 };
 
@@ -124,9 +124,9 @@ const getAvailability = async (
   config: ClaudeCliConfig,
 ): Promise<Availability> => {
   try {
-    const probe = spawnerOf(config)(["--version"]);
-    void readAll(probe.stdout);
-    void readAll(probe.stderr);
+    const probe = getSpawner(config)(["--version"]);
+    void readAllText(probe.stdout);
+    void readAllText(probe.stderr);
     const code = await probe.exited;
     if (code === 0) return { kind: "ready" };
     return {
@@ -145,16 +145,16 @@ const getAvailability = async (
  */
 const renderPrompt = (history: readonly AiMessage[], input: string): string => {
   if (history.length === 0) return input;
-  const earlier = history
+  const earlierTurns = history
     .map((turn) => `${turn.role}: ${turn.content}`)
     .join("\n\n");
-  return `<conversation>\n${earlier}\n</conversation>\n\nuser: ${input}`;
+  return `<conversation>\n${earlierTurns}\n</conversation>\n\nuser: ${input}`;
 };
 
-const CONTINUE =
+const CONTINUE_INSTRUCTION =
   "When a <conversation> block is present, it is the conversation so far; reply to the final user turn only, without restating it.";
 
-class ClaudeCliModel implements Model {
+class ClaudeCliConnection implements ModelConnection {
   readonly #config: ClaudeCliConfig;
   readonly #system: string | undefined;
   #usedTokens = 0;
@@ -164,7 +164,7 @@ class ClaudeCliModel implements Model {
     this.#system = options.session.system;
   }
 
-  readonly generate = (
+  readonly generateStream = (
     input: string,
     request: GenerateRequest,
   ): Promise<Result<ReadableStream<string>, AiFailure>> => {
@@ -179,29 +179,31 @@ class ClaudeCliModel implements Model {
         }),
       );
     }
-    const args = this.#argsFor(input, request);
+    const args = this.#toCliArgs(input, request);
     let child: Spawned;
     try {
-      child = spawnerOf(this.#config)(args);
+      child = getSpawner(this.#config)(args);
     } catch (cause) {
       return Promise.resolve(
         err({ kind: "failed", detail: "could not start claude", cause }),
       );
     }
-    return Promise.resolve(ok(this.#deltasOf(child, request.signal)));
+    return Promise.resolve(ok(this.#toDeltaStream(child, request.signal)));
   };
 
   readonly usage = (): ContextUsage =>
     contextUsage(
-      tokens(this.#usedTokens) ?? ZERO,
+      tokens(this.#usedTokens) ?? ZERO_TOKENS,
       this.#config.contextWindow ?? DEFAULTS.contextWindow,
     );
 
   /** Every turn is its own process and it has already exited; nothing is held. */
   readonly dispose = (): void => undefined;
 
-  #argsFor(input: string, request: GenerateRequest): string[] {
-    const system = [this.#system, CONTINUE].filter(Boolean).join("\n\n");
+  #toCliArgs(input: string, request: GenerateRequest): string[] {
+    const system = [this.#system, CONTINUE_INSTRUCTION]
+      .filter(Boolean)
+      .join("\n\n");
     const args = [
       "-p",
       renderPrompt(request.history, input),
@@ -230,22 +232,22 @@ class ClaudeCliModel implements Model {
    * lifecycle's to notice; what is ours is to stop the process when it does,
    * and to close rather than error when the CLI itself ended the turn.
    */
-  #deltasOf(child: Spawned, signal: AbortSignal): ReadableStream<string> {
-    const lines = child.stdout
+  #toDeltaStream(child: Spawned, signal: AbortSignal): ReadableStream<string> {
+    const lineReader = child.stdout
       .pipeThrough(new TextDecoderStream())
       .pipeThrough(ndjsonLines())
       .getReader();
-    const stderr = readAll(child.stderr);
+    const stderrText = readAllText(child.stderr);
     // Once: the abort and the lifecycle's cancel both reach it, and one
     // SIGTERM is the message.
-    let stopped = false;
-    const stop = (): void => {
-      if (stopped) return;
-      stopped = true;
-      signal.removeEventListener("abort", stop);
+    let isStopped = false;
+    const stopChild = (): void => {
+      if (isStopped) return;
+      isStopped = true;
+      signal.removeEventListener("abort", stopChild);
       child.kill();
     };
-    signal.addEventListener("abort", stop, { once: true });
+    signal.addEventListener("abort", stopChild, { once: true });
 
     return new ReadableStream<string>({
       // A pull must make progress — enqueue, close or throw — before it
@@ -256,37 +258,38 @@ class ClaudeCliModel implements Model {
       // second skip.
       pull: async (controller) => {
         for (;;) {
-          const next = await lines.read();
-          if (next.done) {
-            signal.removeEventListener("abort", stop);
+          const nextLine = await lineReader.read();
+          if (nextLine.done) {
+            signal.removeEventListener("abort", stopChild);
             const code = await child.exited;
             // 143 is SIGTERM, our own kill: the lifecycle has already errored
             // the stream as `aborted` by the time this is reached.
             if (code !== 0 && code !== null && code !== 143) {
-              const said = (await stderr).trim();
+              const stderrDetail = (await stderrText).trim();
               throw new AiError({
                 kind: "failed",
-                detail: said === "" ? `claude exited ${code}` : said,
+                detail:
+                  stderrDetail === "" ? `claude exited ${code}` : stderrDetail,
               });
             }
             controller.close();
             return;
           }
-          const line = asRecord(parseJson(next.value));
+          const line = asRecord(parseJson(nextLine.value));
           if (line === null) continue;
-          if (line.type === "result") this.#finish(line);
-          const delta = this.#deltaOf(line);
+          if (line.type === "result") this.#finishTurn(line);
+          const delta = this.#readDelta(line);
           if (delta !== null) {
             controller.enqueue(delta);
             return;
           }
         }
       },
-      cancel: stop,
+      cancel: stopChild,
     });
   }
 
-  #deltaOf(line: Record<string, unknown>): string | null {
+  #readDelta(line: Record<string, unknown>): string | null {
     if (line.type !== "stream_event") return null;
     const event = asRecord(line.event);
     if (event?.type !== "content_block_delta") return null;
@@ -297,11 +300,13 @@ class ClaudeCliModel implements Model {
   }
 
   /** The `result` line: the CLI's own error flag, and the counts for the meter. */
-  #finish(line: Record<string, unknown>): void {
+  #finishTurn(line: Record<string, unknown>): void {
     if (line.is_error === true) {
-      const result = line.result;
+      const reportedResult = line.result;
       const detail =
-        typeof result === "string" ? result : "claude reported an error";
+        typeof reportedResult === "string"
+          ? reportedResult
+          : "claude reported an error";
       throw new AiError({ kind: "failed", detail });
     }
     const usage = asRecord(line.usage) ?? {};
@@ -328,6 +333,6 @@ export function makeClaudeCliBackend(
     modalities: ["text"],
     availability: () => getAvailability(config),
     connect: (options) =>
-      Promise.resolve(ok(new ClaudeCliModel(config, options))),
+      Promise.resolve(ok(new ClaudeCliConnection(config, options))),
   };
 }

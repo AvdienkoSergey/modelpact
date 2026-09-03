@@ -3,7 +3,7 @@ import { describe, expect, test } from "vitest";
 import { abortFailure, linkSignals } from "./abort.js";
 
 /** A signal already aborted, with the platform's reason unless given one. */
-const spent = (reason?: unknown): AbortSignal => {
+const abortedSignal = (reason?: unknown): AbortSignal => {
   const controller = new AbortController();
   controller.abort(reason);
   return controller.signal;
@@ -11,7 +11,7 @@ const spent = (reason?: unknown): AbortSignal => {
 
 describe("abortFailure", () => {
   test("the platform default is a DOMException and reaches cause intact", () => {
-    const signal = spent();
+    const signal = abortedSignal();
     const failure = abortFailure(signal);
 
     expect(failure.kind).toBe("aborted");
@@ -21,7 +21,7 @@ describe("abortFailure", () => {
 
   test("an Error reason is read for its message", () => {
     const reason = new Error("the page went away");
-    const failure = abortFailure(spent(reason));
+    const failure = abortFailure(abortedSignal(reason));
 
     expect(failure).toMatchObject({
       kind: "aborted",
@@ -33,7 +33,7 @@ describe("abortFailure", () => {
   test("a non-Error reason is stringified, and kept whole in cause", () => {
     // `abort(x)` takes any value at all — which is why `signal.reason` is
     // typed `unknown` and why this normalization exists at all.
-    expect(abortFailure(spent("just because"))).toMatchObject({
+    expect(abortFailure(abortedSignal("just because"))).toMatchObject({
       kind: "aborted",
       reason: "just because",
     });
@@ -43,26 +43,26 @@ describe("abortFailure", () => {
     // A caller that aborted with a rich reason can still read it back off
     // `cause`; only the human-facing string is flattened.
     const reason = { code: 7, retryable: false };
-    expect(abortFailure(spent(reason)).cause).toBe(reason);
+    expect(abortFailure(abortedSignal(reason)).cause).toBe(reason);
   });
 });
 
 describe("linkSignals", () => {
   test("with nothing to link it hands back the very same signal", () => {
-    const lifetime = new AbortController().signal;
+    const sessionSignal = new AbortController().signal;
 
     // The same object, not an equal one. `AbortSignal.any([s])` would allocate
     // a fresh signal and register a listener on the original, for one input.
-    expect(linkSignals(lifetime)).toBe(lifetime);
+    expect(linkSignals(sessionSignal)).toBe(sessionSignal);
   });
 
   test("the caller's own signal aborts the generation", () => {
-    const lifetime = new AbortController();
-    const perCall = new AbortController();
-    const linked = linkSignals(lifetime.signal, perCall.signal);
+    const sessionAbort = new AbortController();
+    const callerAbort = new AbortController();
+    const linked = linkSignals(sessionAbort.signal, callerAbort.signal);
     expect(linked.aborted).toBe(false);
 
-    perCall.abort(new Error("caller changed their mind"));
+    callerAbort.abort(new Error("caller changed their mind"));
 
     expect(linked.aborted).toBe(true);
   });
@@ -70,10 +70,13 @@ describe("linkSignals", () => {
   test("close() aborts a call that brought its own signal", () => {
     // The half that makes `close()` end in-flight work: the session's signal
     // is mixed into every generation, whatever the caller passed.
-    const lifetime = new AbortController();
-    const linked = linkSignals(lifetime.signal, new AbortController().signal);
+    const sessionAbort = new AbortController();
+    const linked = linkSignals(
+      sessionAbort.signal,
+      new AbortController().signal,
+    );
 
-    lifetime.abort(new Error("close()"));
+    sessionAbort.abort(new Error("close()"));
 
     expect(linked.aborted).toBe(true);
   });
@@ -82,21 +85,24 @@ describe("linkSignals", () => {
     // What the shortcut above rests on: a linked signal reports the very
     // object it was aborted with, so `abortFailure` reads the same reason
     // whether or not `AbortSignal.any` was involved.
-    const lifetime = new AbortController();
-    const linked = linkSignals(lifetime.signal, new AbortController().signal);
+    const sessionAbort = new AbortController();
+    const linked = linkSignals(
+      sessionAbort.signal,
+      new AbortController().signal,
+    );
     const reason = new Error("close()");
 
-    lifetime.abort(reason);
+    sessionAbort.abort(reason);
 
-    const seen: unknown = linked.reason;
-    expect(seen).toBe(reason);
+    const seenReason: unknown = linked.reason;
+    expect(seenReason).toBe(reason);
     expect(abortFailure(linked).cause).toBe(reason);
   });
 
   test("a lifetime already spent yields a signal already aborted", () => {
     // A generation started after `close()` fails at once rather than running
     // and being cancelled a tick later.
-    const linked = linkSignals(spent(new Error("closed earlier")));
+    const linked = linkSignals(abortedSignal(new Error("closed earlier")));
 
     expect(linked.aborted).toBe(true);
     expect(abortFailure(linked)).toMatchObject({

@@ -118,7 +118,7 @@ const backend: ModelBackend = {
   name: "echo",
   modalities: ["text"],
   availability: () => ({ kind: "ready" }),
-  connect: () => Promise.resolve(ok(model)), // your `generate`, `usage`, `dispose`
+  connect: () => Promise.resolve(ok(model)), // your `generateStream`, `usage`, `dispose`
 };
 
 export const echo = createProvider(backend);
@@ -181,10 +181,10 @@ reasoning instead of finding it restated.
 | [`foundations.ts`](src/types/foundations.ts) | `Result`, and the branded `Tokens`, `Fraction`, `JsonSchema`.                     |
 | [`messages.ts`](src/types/messages.ts)       | `AiMessage`, `Modality`, `ModelRequest`.                                          |
 | [`usage.ts`](src/types/usage.ts)             | `ContextUsage` — unknown, unbounded or bounded — and `UsageKind`.                 |
-| [`failures.ts`](src/types/failures.ts)       | `AiFailure` and `FailureKind`, the mapping `failureFrom`, `AiError`.              |
+| [`failures.ts`](src/types/failures.ts)       | `AiFailure` and `FailureKind`, the mapping `failureFromError`, `AiError`.         |
 | [`session.ts`](src/types/session.ts)         | `AiSession`, `ModelAccess` and `AccessKind`, `DownloadMonitor`, the option types. |
 | [`provider.ts`](src/types/provider.ts)       | `ProviderName`, `AiProvider`.                                                     |
-| [`backend.ts`](src/types/backend.ts)         | `ModelBackend`, `Model` — the four answers a provider supplies.                   |
+| [`backend.ts`](src/types/backend.ts)         | `ModelBackend`, `ModelConnection` — the four answers a provider supplies.         |
 
 Four ideas carry the rest:
 
