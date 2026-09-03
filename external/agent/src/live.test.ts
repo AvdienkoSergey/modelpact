@@ -61,6 +61,54 @@ describe.skipIf(!claudeHere || !ollamaHere)(
   },
 );
 
+/**
+ * The same loop on the other kind of brain. `claude -p` refuses a schema, so
+ * this run goes down the prose branch end to end — the branch the unit tests
+ * only reach through a stub. What it proves is that a refusal is a mode and
+ * not a failure: the tool still runs and the answer still comes from its output.
+ */
+describe.skipIf(!claudeHere)(
+  "live: the agent loop on a brain that refuses schemas",
+  () => {
+    test("claude reads the file through a tool and answers from it, in prose mode", async () => {
+      const root = await mkdtemp(join(tmpdir(), "agent-live-claude-"));
+      await writeFile(
+        join(root, "colour.txt"),
+        "The colour on file is teal.\n",
+        "utf8",
+      );
+
+      const access = await makeClaudeCliProvider({
+        model: "sonnet",
+        maxBudgetUsd: 0.3,
+      }).access();
+      if (access.kind !== "ready")
+        throw new Error(`expected ready, got ${access.kind}`);
+      const opened = await access.open();
+      if (!opened.ok) throw new Error(`open refused: ${opened.error.kind}`);
+
+      const events: AgentEvent[] = [];
+      const run = await runAgent(
+        {
+          brain: brainOfSession(opened.value),
+          tools: [listFilesTool(root), readFileTool(root)],
+          maxSteps: 6,
+          onEvent: (event) => events.push(event),
+        },
+        "Read colour.txt in the workspace and tell me the colour it names. Use the tools.",
+      );
+
+      expect(run.ok).toBe(true);
+      if (!run.ok) return;
+      expect(run.value.text.toLowerCase()).toContain("teal");
+      // The refusal picked the mode; the loop finished anyway.
+      expect(run.value.constrained).toBe(false);
+      expect(events.some((event) => event.kind === "tool")).toBe(true);
+      opened.value.close();
+    }, 300_000);
+  },
+);
+
 describe.skipIf(!ollamaHere)("live: the agent loop on a real model", () => {
   test("it calls a tool, reads the result, and answers from it", async () => {
     const root = await mkdtemp(join(tmpdir(), "agent-live-"));
