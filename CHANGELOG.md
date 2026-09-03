@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.4.0](https://github.com/AvdienkoSergey/modelpact/compare/v1.3.0...v1.4.0) (2026-09-03)
+
+
+### Features
+
+* **providers:** a mock with nothing behind it ([fcb3ec3](https://github.com/AvdienkoSergey/modelpact/commit/fcb3ec341df97703117f57401a5e904f27e00998))
+
+
+### Refactoring
+
+* **lifecycle:** five stages every provider runs on ([bee58a6](https://github.com/AvdienkoSergey/modelpact/commit/bee58a63d5f6d8855df034218bba52a74e0d5ad9))
+
 ## [1.3.0](https://github.com/AvdienkoSergey/modelpact/compare/v1.2.2...v1.3.0) (2026-09-02)
 
 
