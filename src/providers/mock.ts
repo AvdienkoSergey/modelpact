@@ -51,7 +51,7 @@ export interface MockConfig {
   readonly access?: "ready" | "unavailable" | "needs-download";
   /** Progress to report before opening on the `needs-download` branch. */
   readonly downloadSteps?: readonly number[];
-  /** Milliseconds per delta. Zero would make "while the first runs" untestable. */
+  /** Milliseconds per delta, and per download step. Zero would make "while the first runs" untestable. */
   readonly delayMs?: number;
 }
 
@@ -167,10 +167,11 @@ const getAvailability = (config: MockConfig): Availability => {
 
 const reportDownload = async (
   steps: readonly number[],
+  delayMs: number,
   reportProgress: (loaded: Fraction) => void,
 ): Promise<void> => {
   for (const step of steps) {
-    await sleep(0);
+    await sleep(delayMs);
     const progress = fraction(step);
     if (progress !== null) reportProgress(progress);
   }
@@ -182,7 +183,8 @@ const connectMock = async (
 ): Promise<Result<Model, AiFailure>> => {
   if (config.access === "needs-download") {
     const steps = config.downloadSteps ?? DEFAULTS.downloadSteps;
-    await reportDownload(steps, options.reportProgress);
+    const delayMs = config.delayMs ?? DEFAULTS.delayMs;
+    await reportDownload(steps, delayMs, options.reportProgress);
   }
   const model = new MockModel(config, options.session.history);
   return ok(model);

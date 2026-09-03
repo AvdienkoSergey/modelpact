@@ -50,9 +50,16 @@ frozen page.
 
 ---
 
+**See it before you install it.** [`demo/`](demo/) is a chat on the mock
+provider: streaming, a stop button, a usage meter, an overflow warning, a
+download bar, and a conversation that comes back after a reload.
+
+```sh
+cd demo && npm install && npm run dev
 ```
-Here, you'll need to add commands to run the React app so that users can go through the onboarding process and see how easy and simple it all is.
-```
+
+Everything on that screen is one of the promises below, and the picker at the
+top swaps the backend without touching anything else.
 
 ---
 
