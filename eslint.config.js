@@ -9,7 +9,7 @@ export default defineConfig(
   // read it without types and report on what they cannot see — a `let` set
   // from a cleanup closure comes back as "always falsy". `npm run demo:check`
   // is what checks it.
-  { ignores: ["dist/**", "demo/**", "docs/**", "patches/**"] },
+  { ignores: ["dist/**", "demo/**", "external/**", "docs/**", "patches/**"] },
   {
     files: ["**/*.ts", "**/*.js"],
     extends: [

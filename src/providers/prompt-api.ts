@@ -12,7 +12,11 @@
  *
  * The declarations are `@types/dom-chromium-ai`, patched under `patches/` to
  * close the gap between the IDL and the spec; `src/types.test-d.ts` is where
- * the two meet.
+ * the two meet. They are named in function bodies and nowhere in a signature
+ * that leaves this file: an exported type naming `LanguageModel` puts the same
+ * name in the emitted `.d.ts`, and a consumer who has not installed those
+ * declarations, or who lists `types` explicitly, then cannot compile the
+ * package at all. `external/webgpu-provider` is where that was found.
  */
 
 import { failureFrom, type AiFailure } from "../types/failures.js";
@@ -36,19 +40,18 @@ import type { SessionOptions } from "../types/session.js";
 import { contextUsage, type ContextUsage } from "../types/usage.js";
 import { createProvider } from "./create.js";
 
-export interface PromptApiConfig {
-  /**
-   * The class to drive. Defaults to the page's own; passing one is for a test
-   * or a polyfill, since there is no second implementation to point at.
-   */
-  readonly languageModel?: typeof LanguageModel;
-}
-
-/** `typeof` and not a bare read: the global is absent outside a page, and naming it there throws. */
-const apiOf = (config: PromptApiConfig): typeof LanguageModel | null => {
-  if (config.languageModel !== undefined) return config.languageModel;
-  return typeof LanguageModel === "undefined" ? null : LanguageModel;
-};
+/**
+ * The page's own class, or nothing.
+ *
+ * There is no way to hand one in. A polyfill is already this — it defines the
+ * global — and a test sets the global too, which is the same path the browser
+ * takes rather than one beside it.
+ *
+ * `typeof` and not a bare read: outside a page the name is not declared, and
+ * naming it there throws rather than answering undefined.
+ */
+const platformApi = (): typeof LanguageModel | null =>
+  typeof LanguageModel === "undefined" ? null : LanguageModel;
 
 const expectationsOf = (
   asked: ModelRequest["inputs"],
@@ -98,10 +101,9 @@ const availabilityOf = (said: SpecAvailability): Availability => {
 };
 
 const getAvailability = async (
-  config: PromptApiConfig,
   request: ModelRequest,
 ): Promise<Availability> => {
-  const api = apiOf(config);
+  const api = platformApi();
   if (api === null)
     return { kind: "unavailable", reason: { kind: "unsupported" } };
   try {
@@ -208,10 +210,9 @@ class PromptApiModel implements Model {
 }
 
 const connectPromptApi = async (
-  config: PromptApiConfig,
   options: ConnectOptions,
 ): Promise<Result<Model, AiFailure>> => {
-  const api = apiOf(config);
+  const api = platformApi();
   if (api === null) return err({ kind: "unsupported" });
 
   const initialPrompts = initialPromptsOf(options.session);
@@ -245,16 +246,14 @@ const connectPromptApi = async (
   }
 };
 
-export function makePromptApiProvider(
-  config: PromptApiConfig = {},
-): AiProvider {
+export function makePromptApiProvider(): AiProvider {
   const backend: ModelBackend = {
     name: "prompt-api",
     // Text only, because that is all `AiMessage` carries. The model takes more,
     // and asking for it would promise a message this contract cannot build.
     modalities: ["text"],
-    availability: (request) => getAvailability(config, request),
-    connect: (options) => connectPromptApi(config, options),
+    availability: (request) => getAvailability(request),
+    connect: (options) => connectPromptApi(options),
   };
   return createProvider(backend);
 }

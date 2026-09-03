@@ -7,13 +7,18 @@
  * The fake is not a convenience — it is the list of what this backend needs
  * from the platform, and nothing else in `../types` is allowed to grow past it.
  *
+ * The fake goes on `globalThis`, where the browser puts the real one, because
+ * the backend takes no injection: a hatch for it would have named the platform
+ * class in an exported type, and that name is one a consumer does not have.
+ *
  * `access` against the missing global is the one case that is not a fake: in
  * node there is no `LanguageModel`, and that is the answer under test.
  */
 
-import { describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test } from "vitest";
 
 import { CONTRACT_SCHEMA, describeContract } from "../testing/contract.js";
+import type { AiProvider } from "../types/provider.js";
 import { makePromptApiProvider } from "./prompt-api.js";
 
 interface FakeOptions {
@@ -172,29 +177,33 @@ const abortError = (message: string): Error => named("AbortError", message);
 
 const SCHEMA_REPLY = JSON.stringify({ city: "Paris" });
 
+const held = globalThis as { LanguageModel?: typeof LanguageModel };
+
+/** Installs the fake and hands back a provider that will find it. */
+const withFake = (options: FakeOptions = {}): AiProvider => {
+  held.LanguageModel = fakeLanguageModel(options);
+  return makePromptApiProvider();
+};
+
+afterEach(() => {
+  delete held.LanguageModel;
+});
+
 describeContract("prompt-api on a written LanguageModel", (scenario) => {
   switch (scenario) {
     case "ready":
-      return makePromptApiProvider({
-        languageModel: fakeLanguageModel({ schemaReply: SCHEMA_REPLY }),
-      });
+      return withFake({ schemaReply: SCHEMA_REPLY });
     case "unavailable":
-      return makePromptApiProvider({
-        languageModel: fakeLanguageModel({ availability: "unavailable" }),
-      });
+      return withFake({ availability: "unavailable" });
     case "needs-download":
-      return makePromptApiProvider({
-        languageModel: fakeLanguageModel({
-          availability: "downloadable",
-          downloadSteps: [0, 0.5, 1],
-        }),
+      return withFake({
+        availability: "downloadable",
+        downloadSteps: [0, 0.5, 1],
       });
     case "tiny-window":
-      return makePromptApiProvider({
-        languageModel: fakeLanguageModel({
-          contextWindow: 1,
-          schemaReply: SCHEMA_REPLY,
-        }),
+      return withFake({
+        contextWindow: 1,
+        schemaReply: SCHEMA_REPLY,
       });
   }
 });
@@ -209,9 +218,7 @@ describe("prompt-api mapping", () => {
   });
 
   test("`downloading` is the same branch as `downloadable`, and says so", async () => {
-    const started = makePromptApiProvider({
-      languageModel: fakeLanguageModel({ availability: "downloading" }),
-    });
+    const started = withFake({ availability: "downloading" });
     const access = await started.access();
     expect(access.kind).toBe("needs-download");
     if (access.kind !== "needs-download") return;
@@ -220,12 +227,10 @@ describe("prompt-api mapping", () => {
   });
 
   test("a blocked permissions policy is a reason, not an exception", async () => {
-    const provider = makePromptApiProvider({
-      languageModel: fakeLanguageModel({
-        failCreate: () => {
-          throw named("NotAllowedError", "language-model is not allowed here");
-        },
-      }),
+    const provider = withFake({
+      failCreate: () => {
+        throw named("NotAllowedError", "language-model is not allowed here");
+      },
     });
     const access = await provider.access();
     expect(access.kind).toBe("unavailable");
@@ -234,9 +239,7 @@ describe("prompt-api mapping", () => {
   });
 
   test("an overflow the browser announces is forwarded, once", async () => {
-    const provider = makePromptApiProvider({
-      languageModel: fakeLanguageModel({ contextWindow: 1 }),
-    });
+    const provider = withFake({ contextWindow: 1 });
     const access = await provider.access();
     if (access.kind !== "ready") throw new Error("expected ready");
     const opened = await access.open();
@@ -251,13 +254,11 @@ describe("prompt-api mapping", () => {
   });
 
   test("a quota exception comes back carrying the reading", async () => {
-    const provider = makePromptApiProvider({
-      languageModel: fakeLanguageModel({
-        contextWindow: 500,
-        failPrompt: () => {
-          throw named("QuotaExceededError", "over the window");
-        },
-      }),
+    const provider = withFake({
+      contextWindow: 500,
+      failPrompt: () => {
+        throw named("QuotaExceededError", "over the window");
+      },
     });
     const access = await provider.access();
     if (access.kind !== "ready") throw new Error("expected ready");
@@ -275,9 +276,7 @@ describe("prompt-api mapping", () => {
   });
 
   test("a schema it cannot constrain is refused, never answered in prose", async () => {
-    const provider = makePromptApiProvider({
-      languageModel: fakeLanguageModel(),
-    });
+    const provider = withFake();
     const access = await provider.access();
     if (access.kind !== "ready") throw new Error("expected ready");
     const opened = await access.open();
@@ -302,8 +301,8 @@ describe("prompt-api mapping", () => {
       },
     } as unknown as typeof LanguageModel;
 
-    const provider = makePromptApiProvider({ languageModel: watched });
-    const access = await provider.access();
+    held.LanguageModel = watched;
+    const access = await makePromptApiProvider().access();
     if (access.kind !== "ready") throw new Error("expected ready");
     const opened = await access.open({
       system: "Answer in one sentence.",

@@ -77,6 +77,28 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e
 
+  # The package as a stranger receives it: `exports` and nothing else, no path
+  # into `src/`. It is a job of its own because it installs an engine the rest
+  # of the repo has no use for, and because it should be able to go red on its
+  # own — a backend that cannot be written from out there is a fact about this
+  # package, not about that directory.
+  outside:
+    if: ${{ !startsWith(github.head_ref, 'release-please--') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm ci --prefix external/webgpu-provider
+      # First, because it is the guard: every exported name, `skipLibCheck`
+      # off, no ambient types handed over for free.
+      - run: npm run external:surface
+      - if: ${{ !cancelled() }}
+        run: npm run external
+
   # The same suites again, with a daemon answering. The `check` job runs them
   # with none, and the ollama specs skip there — this job is what makes that
   # skip a fact about the environment rather than a hole.
