@@ -31,6 +31,18 @@ updates:
     groups:
       dev-dependencies:
         patterns: ["*"]
+    # TypeScript majors are held back by the linter, not by this code.
+    # `typescript-eslint@8.69.0`, the latest, declares `typescript
+    # >=4.8.4 <6.1.0`, so a bump to 7 fails `npm ci` with ERESOLVE before a
+    # single check runs — which is what happened on the bot's first attempt.
+    #
+    # The code itself is ready: 7.0.2 compiles src, the build config, the demo,
+    # e2e and all three packages under external/ with no errors, type-level
+    # test included — every `@ts-expect-error` in it still fires. Drop this
+    # rule the day typescript-eslint widens that range, and take both together.
+    ignore:
+      - dependency-name: typescript
+        update-types: [version-update:semver-major]
     # The demo and the three packages under external/ have lockfiles of their
     # own and are deliberately not watched: each depends on this package at
     # `file:`, so a bump there reaches no consumer, and what matters about them
