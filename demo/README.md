@@ -11,21 +11,22 @@ npm run dev
 
 ## What it is here to show
 
-| On screen                        | In the library                                                |
-| -------------------------------- | ------------------------------------------------------------- |
-| Words arriving one at a time     | `promptStream` and a reader loop                              |
-| **Stop** halfway through         | `signal`, and a session that is still open afterwards         |
-| The interrupted answer vanishing | only completed turns reach `session.history()`                |
-| The meter beside the picker      | `session.usage()`                                             |
-| The chip beside it               | `AccessKind`, one line per branch of `ModelAccess`            |
-| "The conversation outgrew…"      | `oncontextoverflow`, fired once, on the narrow-window backend |
-| The progress line on first open  | the `needs-download` branch and its monitor                   |
-| Reload, and it is still there    | `session.history()` out, `open({ history })` back in          |
-| A second tab staying in step     | the `storage` event, not a library feature                    |
-| The `ollama` entry answering     | a real model, through the same session as the three mocks     |
-| "Download them" before a fetch   | the `needs-download` branch, not opened unasked               |
-| The `prompt-api` entry           | Chrome's own model, mapped by the same four answers           |
-| The `webgpu` entry               | a backend from another package, installed like any other      |
+| On screen                        | In the library                                                           |
+| -------------------------------- | ------------------------------------------------------------------------ |
+| Words arriving one at a time     | `promptStream` and a reader loop                                         |
+| **Stop** halfway through         | `signal`, and a session that is still open afterwards                    |
+| The interrupted answer vanishing | only completed turns reach `session.history()`                           |
+| The meter beside the picker      | `session.usage()`                                                        |
+| The chip beside it               | `AccessKind`, one line per branch of `ModelAccess`                       |
+| "The conversation outgrew…"      | `oncontextoverflow`, fired once, on the narrow-window backend            |
+| The progress line on first open  | the `needs-download` branch and its monitor                              |
+| Reload, and it is still there    | `session.history()` out, `open({ history })` back in                     |
+| A second tab staying in step     | the `storage` event, not a library feature                               |
+| The `ollama` entry answering     | a real model, through the same session as the three mocks                |
+| "Download them" before a fetch   | the `needs-download` branch, not opened unasked                          |
+| The `prompt-api` entry           | Chrome's own model, mapped by the same four answers                      |
+| The `webgpu` entry               | a backend from another package, installed like any other                 |
+| **Read the page** ticked         | `ModelRequest.tools`: a tool from `modelpact/tools`, run inside the turn |
 
 The picker holds six entries of one registry. Three are the mock with
 different settings; the others are Ollama, Chrome's built-in model, and a
@@ -37,6 +38,14 @@ That is the claim the rest of this app exists to make honest.
 The Ollama entry wants a daemon on `127.0.0.1:11434` holding `granite4:350m`.
 Without one it answers `unavailable` and the chip says so, which is the branch
 the three mocks cannot stage.
+
+**Read the page** hands the session one tool, `pageText` from
+[`modelpact/tools`](../src/tools/page-text.ts), and the chip says `ready ·
+tools` once a session has opened with it. On the mocks the tool runs when its
+name is in the message and what it read is the end of the answer; on Ollama
+the model decides; on Chrome 152 the session is refused at open, which is the
+notice you get. Each call shows in the record as a grey line — the name and
+the start of what came back — because the record itself holds only turns.
 
 The Chrome entry needs no configuring. What it usually lands on is
 `needs-download`, and that branch is not opened for you: Gemini Nano is

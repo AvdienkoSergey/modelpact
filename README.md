@@ -90,9 +90,9 @@ Everything on that screen is one of the promises above: words arriving one at a
 time, a **Stop** that leaves the session open, the interrupted answer gone from
 the record, a meter, a chip per `AccessKind`, an overflow warning that fires
 once, a download bar that waits to be asked, and a conversation that survives a
-reload and stays in step across two tabs. Nine Playwright specs — one per
-promise, and one per real backend in the picker — drive it in Chromium and are
-the repo's whole browser suite.
+reload and stays in step across two tabs. Ten Playwright specs — one per
+promise, one per real backend in the picker, and one for a tool reading the
+page — drive it in Chromium and are the repo's whole browser suite.
 
 The last three rows are the point. A real model on a daemon, the browser's own
 model, and a model on WebGPU are not three integrations here. They are three
@@ -265,6 +265,12 @@ throws `InvalidStateError`, measured — and that lands as `invalid-state` from
 call out of a schema-constrained answer, which is what
 [`external/agent`](external/agent) already does.
 
+`modelpact/tools` is a third entry, for tools that read a page: `pageText`
+returns the visible text of the document or of one element by selector, cut to
+fit a window, and every mistake in the arguments comes back as words the model
+can act on. A separate entry because it names `document`, and the main entry
+runs in node.
+
 Tools cost window. Measured on Ollama across three models, one tool with a
 one-sentence description and a few parameters is about 50 tokens, plus 100 to
 200 for the preamble, and on Gemini Nano the window is 9 216. Eight tools are
@@ -319,7 +325,7 @@ off and `types: []` — if a `.d.ts` ever names a global you do not have, that
 build goes red before yours does.
 
 **What a pull request has to pass.** Typecheck, lint, format, the vitest suites,
-nine Playwright specs in Chromium, and the three packages under `external/` —
+ten Playwright specs in Chromium, and the three packages under `external/` —
 their own tests and their surface guards — on every change, in one run.
 
 **Next.** An OpenAI-compatible HTTP backend: one transport for

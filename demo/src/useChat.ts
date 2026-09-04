@@ -16,14 +16,25 @@ import {
   type AiSession,
   type ContextUsage,
   type Result,
+  type Tool,
 } from "modelpact";
 
 import { PROVIDERS, type ProviderName } from "./providers";
 import { clearRecord, loadRecord, saveRecord, watchRecord } from "./storage";
 
+/** One tool call as the turn made it: the name, and the start of what it said. */
+export interface ToolNote {
+  readonly name: string;
+  readonly preview: string;
+}
+
 export interface Chat {
   /** Which branch the provider answered with, or null while it is being asked. */
   readonly access: AccessKind | null;
+  /** True once a session opened with the tools that were asked for. */
+  readonly openedWithTools: boolean;
+  /** The calls the running or last turn made, in order; cleared when a turn starts. */
+  readonly toolNotes: readonly ToolNote[];
   readonly record: readonly AiMessage[];
   /** The answer as it arrives; null when no turn is running. */
   readonly streamingAnswer: string | null;
@@ -63,11 +74,17 @@ const toOpening = (sessionResult: Result<AiSession, AiFailure>): Opening =>
 async function openSession(
   providerName: ProviderName,
   history: readonly AiMessage[],
+  tools: readonly Tool[],
   isDownloadAllowed: boolean,
   onAccess: (kind: AccessKind) => void,
   onProgress: (progress: number) => void,
 ): Promise<Opening> {
-  const modelAccess = await PROVIDERS[providerName].access();
+  // Tools are part of the request, so the answer to "is there a model" is an
+  // answer about a model that can run them — and a backend without a tool
+  // protocol says `unavailable` here rather than opening without them.
+  const modelAccess = await PROVIDERS[providerName].access(
+    tools.length === 0 ? {} : { tools },
+  );
   onAccess(modelAccess.kind);
   if (modelAccess.kind === "unavailable")
     return { kind: "refused", failure: modelAccess.reason };
@@ -86,7 +103,20 @@ async function openSession(
   return toOpening(await modelAccess.open({ history }));
 }
 
-export function useChat(providerName: ProviderName): Chat {
+/** The same tool, with what it says written down as it says it. */
+const noteCalls = (tool: Tool, onCall: (note: ToolNote) => void): Tool => ({
+  ...tool,
+  execute: async (input, signal) => {
+    const toolText = await tool.execute(input, signal);
+    onCall({ name: tool.name, preview: toolText.slice(0, 80) });
+    return toolText;
+  },
+});
+
+export function useChat(
+  providerName: ProviderName,
+  tools: readonly Tool[],
+): Chat {
   // The conversation a session is opened on. Set by storage on load, and again
   // whenever another tab writes — which is what reopens the session below.
   const [seedRecord, setSeedRecord] =
@@ -99,6 +129,8 @@ export function useChat(providerName: ProviderName): Chat {
   const [downloadProgress, setDownloadProgress] = useState<number | null>(null);
   const [access, setAccess] = useState<AccessKind | null>(null);
   const [awaitingDownload, setAwaitingDownload] = useState(false);
+  const [openedWithTools, setOpenedWithTools] = useState(false);
+  const [toolNotes, setToolNotes] = useState<readonly ToolNote[]>([]);
   // The name it was granted for, not a flag: switching backends cannot carry
   // an answer given about a different one.
   const [downloadAllowedFor, setDownloadAllowedFor] =
@@ -116,6 +148,8 @@ export function useChat(providerName: ProviderName): Chat {
     setReady(false);
     setAccess(null);
     setAwaitingDownload(false);
+    setOpenedWithTools(false);
+    setToolNotes([]);
     setOverflowed(false);
     setFailure(null);
     // The old session's meter belongs to the old session; leaving it up reads
@@ -123,9 +157,15 @@ export function useChat(providerName: ProviderName): Chat {
     setUsage({ kind: "unknown" });
 
     void (async () => {
+      const notedTools = tools.map((tool) =>
+        noteCalls(tool, (note) => {
+          if (isLive) setToolNotes((notes) => [...notes, note]);
+        }),
+      );
       const opening = await openSession(
         providerName,
         seedRecord,
+        notedTools,
         downloadAllowedFor === providerName,
         (kind) => {
           if (isLive) setAccess(kind);
@@ -156,6 +196,7 @@ export function useChat(providerName: ProviderName): Chat {
       sessionRef.current = openedSession;
       setRecord(openedSession.history());
       setUsage(openedSession.usage());
+      setOpenedWithTools(tools.length > 0);
       setReady(true);
     })();
 
@@ -164,7 +205,7 @@ export function useChat(providerName: ProviderName): Chat {
       openedSession?.close();
       sessionRef.current = null;
     };
-  }, [providerName, seedRecord, downloadAllowedFor]);
+  }, [providerName, seedRecord, downloadAllowedFor, tools]);
 
   const send = useCallback((input: string) => {
     const currentSession = sessionRef.current;
@@ -173,6 +214,7 @@ export function useChat(providerName: ProviderName): Chat {
     const turnController = new AbortController();
     turnRef.current = turnController;
     setFailure(null);
+    setToolNotes([]);
     setStreamingAnswer("");
 
     void (async () => {
@@ -230,6 +272,8 @@ export function useChat(providerName: ProviderName): Chat {
 
   return {
     access,
+    openedWithTools,
+    toolNotes,
     record,
     streamingAnswer,
     usage,

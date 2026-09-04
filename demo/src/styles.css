@@ -156,6 +156,25 @@ input:disabled {
   color: var(--muted);
 }
 
+.record .tool {
+  align-self: flex-start;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  border-left: 2px solid var(--line);
+  border-radius: 0;
+  padding: 0.2rem 0.6rem;
+}
+
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
 .notice {
   margin: 0;
   color: var(--muted);
