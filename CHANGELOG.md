@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.2.1](https://github.com/AvdienkoSergey/modelpact/compare/v2.2.0...v2.2.1) (2026-09-04)
+
+
+### Refactoring
+
+* a mock tool in modelpact/tools, in place of pageText ([0fe98d6](https://github.com/AvdienkoSergey/modelpact/commit/0fe98d684a3c35398da84b61adc1bba765d65cd6))
+* a mock tool in modelpact/tools, in place of pageText ([a761ff1](https://github.com/AvdienkoSergey/modelpact/commit/a761ff1ddc775244246b1aa415abfd5e7320b50c))
+
 ## [2.2.0](https://github.com/AvdienkoSergey/modelpact/compare/v2.1.0...v2.2.0) (2026-09-04)
 
 
