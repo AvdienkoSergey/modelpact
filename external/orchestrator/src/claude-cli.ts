@@ -36,7 +36,7 @@ import {
   type ModelConnection,
   type ModelBackend,
   type Result,
-} from "modelpact";
+} from "modelpact/backend";
 
 /**
  * What the backend needs of a child process, and no more. Structural so that

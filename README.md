@@ -157,8 +157,8 @@ executed inside the turn by the backend or the platform — and a backend with
 no protocol refuses by name rather than answering as if none were asked for.
 See [Tools](#tools).
 
-Three packages, three storeys, and the thing they share is sixteen exports and
-a test suite. Each export is there because something outside needed it; what is
+Three packages, three storeys, and the thing they share is sixteen exports, a
+door for transports, and a test suite. Each export is there because something outside needed it; what is
 not there — storage, a router, a third role — is not missing, it lives
 upstairs. The next transport is an afternoon and a green suite. The next policy
 or loop is a consumer, not a feature.
@@ -198,7 +198,7 @@ at a time, an abort that leaves the session open, an overflow that fires once, a
 close that refuses everything after it.
 
 ```ts
-import { createProvider, ok, type ModelBackend } from "modelpact";
+import { createProvider, ok, type ModelBackend } from "modelpact/backend";
 
 const backend: ModelBackend = {
   name: "echo",
@@ -217,6 +217,13 @@ import { describeContract } from "modelpact/testing";
 
 describeContract("echo", () => echo);
 ```
+
+`modelpact/backend` is the door for a transport author: the four answers, the
+helpers that fill them — `createProvider`, `ndjsonLines`, `runTool` — and the
+types they name, and nothing an app reaches for. A backend written against it
+depends on that small surface rather than on the whole package; the two
+outside this repo do, and their surface guards read this entry with `types`
+empty. The main entry keeps re-exporting the same names until the next major.
 
 `modelpact/testing` needs `vitest`, which is an optional peer dependency: an app
 that only consumes a provider never loads it.

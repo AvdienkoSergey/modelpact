@@ -29,7 +29,7 @@ import {
   type ModelConnection,
   type ModelBackend,
   type Result,
-} from "modelpact";
+} from "modelpact/backend";
 import { CreateMLCEngine, type InitProgressReport } from "@mlc-ai/web-llm";
 
 /** A delta as the engine sends it; these are the only fields read. */
