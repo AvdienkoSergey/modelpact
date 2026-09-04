@@ -51,6 +51,14 @@ import {
   type UsageKind,
 } from "modelpact";
 import { CONTRACT_SCHEMA, describeContract } from "modelpact/testing";
+import {
+  createProvider as createProviderFromDoor,
+  findTool,
+  runTool,
+  toolThrewFailure,
+  type ModelBackend as ModelBackendFromDoor,
+  type Tool,
+} from "modelpact/backend";
 
 export const values = {
   AiError,
@@ -70,7 +78,13 @@ export const values = {
   tokens,
   CONTRACT_SCHEMA,
   describeContract,
+  createProviderFromDoor,
+  findTool,
+  runTool,
+  toolThrewFailure,
 };
+
+export type DoorTypes = [ModelBackendFromDoor, Tool];
 
 export type Types = [
   AccessKind,
