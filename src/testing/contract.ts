@@ -59,6 +59,14 @@ export type ProviderFactory = (
  */
 const LONG_QUESTION = "List the numbers from one to ten, separated by commas.";
 
+/**
+ * How many turns the overflow test spends before giving up on a window it was
+ * told is too narrow to hold one. Four rather than one: the window is crossed
+ * by what the turns cost, and a model that answers in three words on the first
+ * turn is answering the question, not disproving the event.
+ */
+const OVERFLOW_TURNS = 4;
+
 // A literal written on the next line: null here would be a typo in this file,
 // not a case a provider can reach.
 const asSchema = (value: Record<string, unknown>): JsonSchema => {
@@ -574,11 +582,19 @@ export function describeContract(
         if (session === null) return;
         let fired = 0;
         session.oncontextoverflow = () => (fired += 1);
-        await session.prompt(LONG_QUESTION);
-        await session.prompt(LONG_QUESTION);
+        // Turns until the line is crossed, not a fixed two: how much of a
+        // narrow window one answer spends is the model's to decide, and a
+        // transcript grows with every turn whatever it decides. A refused turn
+        // is a different failure, and reads as itself rather than as silence.
+        for (let turn = 0; turn < OVERFLOW_TURNS && fired === 0; turn += 1) {
+          const answerResult = await session.prompt(LONG_QUESTION);
+          if (!answerResult.ok) throw new AiError(answerResult.error);
+        }
         expect(fired).toBeGreaterThan(0);
-        // Once: the window does not un-overflow, and every turn after the
-        // first is over the same line.
+        // Once: the window does not un-overflow, and every turn after the one
+        // that crossed is over the same line.
+        const nextResult = await session.prompt(LONG_QUESTION);
+        if (!nextResult.ok) throw new AiError(nextResult.error);
         expect(fired).toBe(1);
         session.close();
       });
@@ -599,8 +615,9 @@ export function describeContract(
         let fired = 0;
         session.oncontextoverflow = () => (fired += 1);
         session.oncontextoverflow = null;
-        await session.prompt(LONG_QUESTION);
-        await session.prompt(LONG_QUESTION);
+        for (let turn = 0; turn < OVERFLOW_TURNS; turn += 1) {
+          await session.prompt(LONG_QUESTION);
+        }
         expect(fired).toBe(0);
         session.close();
       });

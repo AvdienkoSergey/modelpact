@@ -204,8 +204,38 @@ const mustOpenWithTool = async (
 
 const makeStubbedProvider = (
   routes: Record<string, (init: RequestInit | undefined) => Response>,
+  config: Partial<OllamaConfig> = {},
 ) =>
-  makeOllamaProvider({ model: MODEL, host: HOST, fetch: makeDaemon(routes) });
+  makeOllamaProvider({
+    model: MODEL,
+    host: HOST,
+    ...config,
+    fetch: makeDaemon(routes),
+  });
+
+/**
+ * A daemon that stops at the window instead of shifting it: the counts reach
+ * `num_ctx` and go no further, and `done_reason` says why they stopped there.
+ */
+const makeStoppedAtWindowResponse =
+  (doneReason: string) =>
+  (init: RequestInit | undefined): Response => {
+    const counts = {
+      prompt_eval_count: 24,
+      eval_count: 8,
+      done_reason: doneReason,
+    };
+    const wholeBody = {
+      message: { content: "one, two" },
+      done: true,
+      ...counts,
+    };
+    if (readSentBody(init).stream !== true) return makeJsonResponse(wholeBody);
+    return makeNdjsonResponse(
+      { message: { content: "one, two" }, done: false },
+      { message: { content: "" }, done: true, ...counts },
+    );
+  };
 
 const mustOpenSession = async (
   provider: ReturnType<typeof makeStubbedProvider>,
@@ -371,6 +401,42 @@ describe("ollama without a daemon", () => {
     // the history — so the meter repeats rather than doubling.
     expect(firstUsage).toEqual(secondUsage);
     if (firstUsage.kind === "bounded") expect(firstUsage.used).toBe(32);
+    session.close();
+  });
+
+  test("a turn the daemon stopped at the window is an overflow", async () => {
+    const session = await mustOpenSession(
+      makeStubbedProvider(
+        {
+          "/api/tags": () => makeTagsResponse(MODEL),
+          "/api/chat": makeStoppedAtWindowResponse("length"),
+        },
+        { contextWindow: 32 },
+      ),
+    );
+    let fired = 0;
+    session.oncontextoverflow = () => (fired += 1);
+    await session.prompt("first");
+    // The counts stop exactly at the window, so nothing in them is over the
+    // line: the daemon's `length` is the only thing that says the turn ran out.
+    expect(fired).toBe(1);
+    session.close();
+  });
+
+  test("a turn that ended on its own is not, at the same counts", async () => {
+    const session = await mustOpenSession(
+      makeStubbedProvider(
+        {
+          "/api/tags": () => makeTagsResponse(MODEL),
+          "/api/chat": makeStoppedAtWindowResponse("stop"),
+        },
+        { contextWindow: 32 },
+      ),
+    );
+    let fired = 0;
+    session.oncontextoverflow = () => (fired += 1);
+    await session.prompt("first");
+    expect(fired).toBe(0);
     session.close();
   });
 

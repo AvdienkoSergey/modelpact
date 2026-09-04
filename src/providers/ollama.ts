@@ -331,6 +331,7 @@ class OllamaModel implements ModelConnection {
   readonly #system: string | undefined;
   readonly #tools: readonly Tool[];
   readonly #maxToolRounds: number;
+  readonly #reportOverflow: () => void;
   /** The last turn's counts, which is what the context holds now rather than a running sum. */
   #usedTokens = 0;
 
@@ -341,6 +342,7 @@ class OllamaModel implements ModelConnection {
     this.#system = options.session.system;
     this.#tools = options.request.tools ?? [];
     this.#maxToolRounds = config.maxToolRounds ?? DEFAULTS.maxToolRounds;
+    this.#reportOverflow = options.reportOverflow;
   }
 
   readonly generateStream = async (
@@ -563,6 +565,22 @@ class OllamaModel implements ModelConnection {
     const promptTokens = asNumber(finishedLine.prompt_eval_count) ?? 0;
     const answerTokens = asNumber(finishedLine.eval_count) ?? 0;
     this.#usedTokens = promptTokens + answerTokens;
+    if (this.#hasSpentTheWindow(finishedLine)) this.#reportOverflow();
+  }
+
+  /**
+   * A daemon that shifts context answers past `num_ctx` and the counts say so
+   * on their own. One that stops instead ends the turn with `done_reason:
+   * "length"` on counts that reach the window and go no further — the same
+   * overflow, told rather than counted. Both are read here because which one
+   * the daemon does is its build's to decide, not the caller's.
+   *
+   * `num_predict` is left unset, so `length` can only be the window; the count
+   * is checked anyway, in case a model file sets one.
+   */
+  #hasSpentTheWindow(finishedLine: Record<string, unknown>): boolean {
+    if (this.#usedTokens < this.#contextWindow) return false;
+    return asString(finishedLine.done_reason) === "length";
   }
 }
 
