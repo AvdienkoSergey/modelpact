@@ -1,3 +1,5 @@
+import type { Tool } from "./tools.js";
+
 /**
  * `system` is missing on purpose. The spec accepts a system instruction only
  * as the very first message and throws `TypeError` otherwise; here the system
@@ -26,10 +28,13 @@ export interface ModalityExpectation {
  * not only on the environment — an image input or an unsupported language can
  * make an otherwise present model unavailable — so it is asked for up front.
  *
- * Tools are absent because the contract has no tool support; when they arrive
- * they belong here too, since they take part in choosing the model.
+ * Tools are here for the same reason: they take part in choosing the model,
+ * and a backend without a tool protocol refuses at `access` rather than
+ * answering as if none were asked for.
  */
 export interface ModelRequest {
   readonly inputs?: readonly ModalityExpectation[];
   readonly outputs?: readonly ModalityExpectation[];
+  /** Loaded into the window at open and held for the session's life, as the Prompt API does. */
+  readonly tools?: readonly Tool[];
 }

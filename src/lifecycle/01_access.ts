@@ -45,6 +45,13 @@ export const checkAccess = async (
       },
     };
   }
+  const asksForTools = (request.tools?.length ?? 0) > 0;
+  if (asksForTools && backend.tools !== true) {
+    return {
+      kind: "unavailable",
+      reason: { kind: "unsupported-config", languages: [], tools: true },
+    };
+  }
   const availability = await backend.availability(request);
   if (availability.kind === "unavailable") return availability;
   if (availability.kind === "needs-download") {

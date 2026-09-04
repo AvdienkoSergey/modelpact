@@ -13,6 +13,7 @@
  */
 
 import { ndjsonLines } from "../helpers/ndjson.js";
+import { findTool, runTool } from "../helpers/tools.js";
 import {
   err,
   fraction,
@@ -23,6 +24,7 @@ import {
 } from "../types/foundations.js";
 import { AiError, type AiFailure } from "../types/failures.js";
 import type { AiMessage } from "../types/messages.js";
+import type { Tool } from "../types/tools.js";
 import type {
   Availability,
   ConnectOptions,
@@ -50,11 +52,18 @@ export interface OllamaConfig {
   readonly contextWindow?: number;
   /** For a proxy, an auth header, or a test with no daemon behind it. */
   readonly fetch?: typeof globalThis.fetch;
+  /**
+   * How many times one turn may come back with tool calls before it is failed.
+   * Per turn, not per session: a model that keeps asking spends the window on
+   * its own questions and never answers.
+   */
+  readonly maxToolRounds?: number;
 }
 
 const DEFAULTS = {
   host: "http://127.0.0.1:11434",
   contextWindow: 4096,
+  maxToolRounds: 8,
 };
 
 const asRecord = (value: unknown): Record<string, unknown> | null => {
@@ -219,19 +228,109 @@ const pullModel = async (
   }
 };
 
+interface OllamaToolCall {
+  readonly function: {
+    readonly name: string;
+    readonly arguments: Record<string, unknown>;
+  };
+}
+
+/** What `/api/chat` takes beyond the contract's two roles: a call the model made, and the answer to it. */
+type ChatMessage =
+  | AiMessage
+  | {
+      readonly role: "assistant";
+      readonly content: string;
+      readonly tool_calls: readonly OllamaToolCall[];
+    }
+  | {
+      readonly role: "tool";
+      readonly content: string;
+      readonly tool_name: string;
+    };
+
+interface OllamaTool {
+  readonly type: "function";
+  readonly function: {
+    readonly name: string;
+    readonly description: string;
+    readonly parameters: Record<string, unknown>;
+  };
+}
+
 interface ChatBody {
   readonly model: string;
-  readonly messages: readonly AiMessage[];
+  readonly messages: readonly ChatMessage[];
   readonly stream: boolean;
   readonly options: { readonly num_ctx: number };
   readonly format?: Record<string, unknown>;
+  readonly tools?: readonly OllamaTool[];
 }
+
+/**
+ * One `/api/chat` answer being read. The deltas go out as they arrive; what
+ * stays behind is the text and the calls, which the next round is built from.
+ */
+interface OpenRound {
+  readonly reader: ReadableStreamDefaultReader<string>;
+  readonly contentParts: string[];
+  readonly toolCalls: OllamaToolCall[];
+}
+
+const toOllamaTools = (tools: readonly Tool[]): OllamaTool[] =>
+  tools.map((tool) => ({
+    type: "function",
+    function: {
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.inputSchema,
+    },
+  }));
+
+/** A call carries `function.name` and `function.arguments`, an object; one without a name is skipped. */
+const readToolCalls = (
+  message: Record<string, unknown> | null,
+): OllamaToolCall[] => {
+  const listedCalls = message?.tool_calls;
+  if (!Array.isArray(listedCalls)) return [];
+  const readCalls: OllamaToolCall[] = [];
+  for (const listedCall of listedCalls) {
+    const calledFunction = asRecord(asRecord(listedCall)?.function);
+    const name = asString(calledFunction?.name);
+    if (name === null) continue;
+    const callArguments = asRecord(calledFunction?.arguments) ?? {};
+    readCalls.push({ function: { name, arguments: callArguments } });
+  }
+  return readCalls;
+};
+
+const readWhole = async (
+  stream: ReadableStream<string>,
+): Promise<Result<string, AiFailure>> => {
+  const reader = stream.getReader();
+  const parts: string[] = [];
+  try {
+    for (;;) {
+      const chunk = await reader.read();
+      if (chunk.done) return ok(parts.join(""));
+      parts.push(chunk.value);
+    }
+  } catch (error) {
+    return err(
+      error instanceof AiError
+        ? error.failure
+        : { kind: "failed", detail: "the chat stream broke", cause: error },
+    );
+  }
+};
 
 class OllamaModel implements ModelConnection {
   readonly #endpoint: Endpoint;
   readonly #model: string;
   readonly #contextWindow: number;
   readonly #system: string | undefined;
+  readonly #tools: readonly Tool[];
+  readonly #maxToolRounds: number;
   /** The last turn's counts, which is what the context holds now rather than a running sum. */
   #usedTokens = 0;
 
@@ -240,30 +339,35 @@ class OllamaModel implements ModelConnection {
     this.#model = config.model;
     this.#contextWindow = config.contextWindow ?? DEFAULTS.contextWindow;
     this.#system = options.session.system;
+    this.#tools = options.request.tools ?? [];
+    this.#maxToolRounds = config.maxToolRounds ?? DEFAULTS.maxToolRounds;
   }
 
   readonly generateStream = async (
     input: string,
     request: GenerateRequest,
   ): Promise<Result<ReadableStream<string>, AiFailure>> => {
-    const responseResult = await this.#chat(input, request, true);
+    const conversation = this.#toConversation(input, request);
+    const responseResult = await this.#chat(conversation, request, true);
     if (!responseResult.ok) return responseResult;
     const body = responseResult.value.body;
     if (body === null)
       return err({ kind: "failed", detail: "the chat sent no body" });
-
-    const deltas = body
-      .pipeThrough(new TextDecoderStream())
-      .pipeThrough(ndjsonLines())
-      .pipeThrough(this.#readChatLines());
-    return ok(deltas);
+    return ok(this.#streamRounds(body, conversation, request));
   };
 
   readonly generateWhole = async (
     input: string,
     request: GenerateRequest,
   ): Promise<Result<string, AiFailure>> => {
-    const responseResult = await this.#chat(input, request, false);
+    // A turn with tools is rounds, and rounds are the streaming path read to
+    // its end; only a plain turn has a whole-answer call worth a second shape.
+    if (this.#tools.length > 0) {
+      const streamResult = await this.generateStream(input, request);
+      return streamResult.ok ? readWhole(streamResult.value) : streamResult;
+    }
+    const conversation = this.#toConversation(input, request);
+    const responseResult = await this.#chat(conversation, request, false);
     if (!responseResult.ok) return responseResult;
     const parsedBody = asRecord(
       await responseResult.value.json().catch(() => null),
@@ -288,23 +392,28 @@ class OllamaModel implements ModelConnection {
    */
   readonly dispose = (): void => undefined;
 
+  #toConversation(input: string, request: GenerateRequest): ChatMessage[] {
+    const askedMessage: AiMessage = { role: "user", content: input };
+    const conversation: ChatMessage[] = [...request.history, askedMessage];
+    return this.#system === undefined
+      ? conversation
+      : [{ role: "user", content: this.#system }, ...conversation];
+  }
+
   async #chat(
-    input: string,
+    messages: readonly ChatMessage[],
     request: GenerateRequest,
     stream: boolean,
   ): Promise<Result<Response, AiFailure>> {
-    const askedMessage: AiMessage = { role: "user", content: input };
-    const conversation = [...request.history, askedMessage];
-    const messages =
-      this.#system === undefined
-        ? conversation
-        : [{ role: "user" as const, content: this.#system }, ...conversation];
     const body: ChatBody = {
       model: this.#model,
       messages,
       stream,
       options: { num_ctx: this.#contextWindow },
       ...(request.schema === undefined ? {} : { format: request.schema }),
+      ...(this.#tools.length === 0
+        ? {}
+        : { tools: toOllamaTools(this.#tools) }),
     };
     const response = await postTo(
       this.#endpoint,
@@ -317,9 +426,70 @@ class OllamaModel implements ModelConnection {
       : err(await failureFromResponse(response));
   }
 
-  /** Content out, counts kept: the last line carries both `done` and the totals. */
-  #readChatLines(): TransformStream<string, string> {
-    return new TransformStream({
+  /**
+   * Rounds: an answer is read to its end, and where it ends in tool calls the
+   * calls are answered and the conversation sent again. Only text reaches the
+   * caller, so a turn that is all calls is silent until its last round.
+   * Bounded, because a model that keeps calling would spend the window on it:
+   * `granite4:350m` asks for the same listing until something stops it.
+   */
+  #streamRounds(
+    firstBody: NonNullable<Response["body"]>,
+    firstConversation: readonly ChatMessage[],
+    request: GenerateRequest,
+  ): ReadableStream<string> {
+    let conversation = firstConversation;
+    let currentRound = this.#openRound(firstBody);
+    let roundsTaken = 0;
+
+    const advance = async (
+      controller: ReadableStreamDefaultController<string>,
+    ): Promise<void> => {
+      for (;;) {
+        const chunk = await currentRound.reader.read();
+        if (!chunk.done) {
+          controller.enqueue(chunk.value);
+          return;
+        }
+        if (currentRound.toolCalls.length === 0) {
+          controller.close();
+          return;
+        }
+        roundsTaken += 1;
+        if (roundsTaken > this.#maxToolRounds) {
+          throw new AiError({
+            kind: "failed",
+            detail: `the model called tools ${roundsTaken} times without answering`,
+          });
+        }
+        conversation = await this.#answerToolCalls(
+          conversation,
+          currentRound,
+          request.signal,
+        );
+        const nextResult = await this.#chat(conversation, request, true);
+        if (!nextResult.ok) throw new AiError(nextResult.error);
+        const nextBody = nextResult.value.body;
+        if (nextBody === null)
+          throw new AiError({
+            kind: "failed",
+            detail: "the chat sent no body",
+          });
+        currentRound = this.#openRound(nextBody);
+      }
+    };
+
+    return new ReadableStream<string>({
+      pull: (controller) => advance(controller),
+      cancel: (reason) => currentRound.reader.cancel(reason),
+    });
+  }
+
+  /** Content out, calls and counts kept: the last line carries both `done` and the totals. */
+  #openRound(body: NonNullable<Response["body"]>): OpenRound {
+    const contentParts: string[] = [];
+    const toolCalls: OllamaToolCall[] = [];
+    const readLines = new TransformStream<string, string>({
       transform: (line, controller) => {
         const parsedLine = asRecord(parseJson(line));
         if (parsedLine === null) return;
@@ -327,10 +497,61 @@ class OllamaModel implements ModelConnection {
         if (errorText !== null)
           throw new AiError({ kind: "failed", detail: errorText });
         if (parsedLine.done === true) this.#charge(parsedLine);
-        const delta = asString(asRecord(parsedLine.message)?.content) ?? "";
-        if (delta !== "") controller.enqueue(delta);
+        const message = asRecord(parsedLine.message);
+        toolCalls.push(...readToolCalls(message));
+        const delta = asString(message?.content) ?? "";
+        if (delta === "") return;
+        contentParts.push(delta);
+        controller.enqueue(delta);
       },
     });
+    const deltas = body
+      .pipeThrough(new TextDecoderStream())
+      .pipeThrough(ndjsonLines())
+      .pipeThrough(readLines);
+    return { reader: deltas.getReader(), contentParts, toolCalls };
+  }
+
+  /**
+   * The model's call goes back as its own turn, then each answer with the
+   * `tool` role, which is what the daemon's template expects. A name the model
+   * made up is answered by name rather than failing the turn: the model can
+   * pick again, where a failed turn could not. A tool that throws cannot be
+   * answered for, and ends the turn.
+   */
+  async #answerToolCalls(
+    conversation: readonly ChatMessage[],
+    round: OpenRound,
+    signal: AbortSignal,
+  ): Promise<ChatMessage[]> {
+    const answered: ChatMessage[] = [
+      ...conversation,
+      {
+        role: "assistant",
+        content: round.contentParts.join(""),
+        tool_calls: round.toolCalls,
+      },
+    ];
+    for (const call of round.toolCalls) {
+      const name = call.function.name;
+      const tool = findTool(this.#tools, name);
+      if (tool === undefined) {
+        answered.push({
+          role: "tool",
+          content: `there is no tool called "${name}"`,
+          tool_name: name,
+        });
+        continue;
+      }
+      const toolResult = await runTool(tool, call.function.arguments, signal);
+      if (!toolResult.ok) throw new AiError(toolResult.error);
+      answered.push({
+        role: "tool",
+        content: toolResult.value,
+        tool_name: name,
+      });
+    }
+    return answered;
   }
 
   /**
@@ -373,6 +594,7 @@ export function makeOllamaProvider(config: OllamaConfig): AiProvider {
   const backend: ModelBackend = {
     name: "ollama",
     modalities: ["text"],
+    tools: true,
     availability: () => getAvailability(config),
     connect: (options) => connectOllama(config, options),
   };

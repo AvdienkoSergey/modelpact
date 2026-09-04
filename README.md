@@ -3,7 +3,7 @@
 [![npm](https://img.shields.io/npm/v/modelpact)](https://www.npmjs.com/package/modelpact)
 [![ci](https://github.com/AvdienkoSergey/modelpact/actions/workflows/ci.yml/badge.svg?event=pull_request)](https://github.com/AvdienkoSergey/modelpact/actions/workflows/ci.yml)
 ![dependencies: 0](https://img.shields.io/badge/dependencies-0-brightgreen)
-![min+gzip: 4.9 kB](https://img.shields.io/badge/min%2Bgzip-4.9%20kB-blue)
+![min+gzip: 5.9 kB](https://img.shields.io/badge/min%2Bgzip-5.9%20kB-blue)
 ![types: TypeScript](https://img.shields.io/badge/types-TypeScript-3178c6)
 ![node: ≥22](https://img.shields.io/badge/node-%E2%89%A522-339933)
 [![license: MIT](https://img.shields.io/badge/license-MIT-lightgrey)](LICENSE)
@@ -140,18 +140,28 @@ storey is right.
 
 **An agent, on the same storey.** [`external/agent`](external/agent) is a
 tool-calling loop over a `Brain` — two methods, `ask` and `record` — which is an
-`AiSession` or an orchestrator behind a two-line adapter. This contract has no
-tool protocol, and it did not need one: a tool call is a schema, honoured or
-refused and never ignored, and where a backend refuses (`claude -p` does,
-measured) the refusal picks prose mode rather than ending the run. A tool result
-goes back as the next user turn. The reference agent's shape survived; its
-`bash` tool and the hundred lines of path containment it needs did not.
+`AiSession` or an orchestrator behind a two-line adapter. When it was written
+this contract had no tool protocol, and the loop did not need one: a tool call
+is a schema, honoured or refused and never ignored, and where a backend refuses
+(`claude -p` does, measured) the refusal picks prose mode rather than ending
+the run. A tool result goes back as the next user turn. The reference agent's
+shape survived; its `bash` tool and the hundred lines of path containment it
+needs did not.
 
-Three packages, three storeys, and the thing they share is fifteen exports and
+**Tools, once two transports could execute them.** That loop is what showed
+where a protocol was owed: Ollama returns native calls and the Prompt API spec
+takes `tools` at `create`, so faking both with a schema meant two model calls
+per tool and a record that called a tool result a user turn. Tools are now in
+`ModelRequest` — handed over at `access`, loaded into the window at open,
+executed inside the turn by the backend or the platform — and a backend with
+no protocol refuses by name rather than answering as if none were asked for.
+See [Tools](#tools).
+
+Three packages, three storeys, and the thing they share is sixteen exports and
 a test suite. Each export is there because something outside needed it; what is
-not there — storage, a router, a tool protocol, a third role — is not missing,
-it lives upstairs. The next transport is an afternoon and a green suite. The
-next policy or loop is a consumer, not a feature.
+not there — storage, a router, a third role — is not missing, it lives
+upstairs. The next transport is an afternoon and a green suite. The next policy
+or loop is a consumer, not a feature.
 
 ## Quick start
 
@@ -176,7 +186,7 @@ Swap `makeMockProvider` for any other provider and nothing below it changes.
 That is the whole point of the line.
 
 > **What is in.** The contract, its type-level test, the lifecycle, the
-> conformance suite, and three backends — the mock, Ollama, and Chrome's
+> conformance suite, tools, and three backends — the mock, Ollama, and Chrome's
 > built-in model. Everything a backend needs is exported, and two more backends
 > plus an orchestrator and an agent have been written outside the package on
 > exactly that — see [The step, and what stands on it](#the-step-and-what-stands-on-it).
@@ -210,6 +220,58 @@ describeContract("echo", () => echo);
 
 `modelpact/testing` needs `vitest`, which is an optional peer dependency: an app
 that only consumes a provider never loads it.
+
+A backend whose transport executes tools says `tools: true`, and the suite's
+tool assertions then run against it; one that does not is refused for a request
+carrying tools before its `availability` is asked, and the suite checks that
+refusal instead.
+
+### Tools
+
+A tool is a name, a description, a `JsonSchema` for its arguments and an
+`execute`. It is part of the request, because it takes part in choosing the
+model and is loaded into the window at open — both as the Prompt API spec has
+it. The backend or the platform calls `execute` inside the turn; `prompt`
+returns the final text.
+
+```ts
+const lookupColour: Tool = {
+  name: "lookupColour",
+  description: "Return the colour recorded for an item name.",
+  inputSchema: jsonSchema({
+    type: "object",
+    properties: { item: { type: "string" } },
+    required: ["item"],
+  })!,
+  execute: ({ item }, signal) => colours.get(String(item)) ?? "unknown",
+};
+
+const access = await provider.access({ tools: [lookupColour] });
+```
+
+What the session promises while a tool runs is what it promises anyway, held
+for the whole turn: a second `prompt` gets `busy`; an abort reaches `execute`
+through the signal it is handed, and fails the turn with `aborted`; a tool that
+throws fails the turn with `failed` naming the tool, and the session stays
+open. A tool that wants the model to see a problem and recover returns it as
+text.
+
+A refusal comes in two places, and a loop above has to expect both. A backend
+without a protocol answers `unavailable` at `access`, with `tools: true` in the
+`unsupported-config` reason. A backend with one can still fail at `open`:
+Chrome 152 does — `availability()` says `available` with tools and `create()`
+throws `InvalidStateError`, measured — and that lands as `invalid-state` from
+`open`. Either way the move is the same: ask again without tools, and read the
+call out of a schema-constrained answer, which is what
+[`external/agent`](external/agent) already does.
+
+Tools cost window. Measured on Ollama across three models, one tool with a
+one-sentence description and a few parameters is about 50 tokens, plus 100 to
+200 for the preamble, and on Gemini Nano the window is 9 216. Eight tools are
+five per cent of it; thirty-two are a fifth. Ollama resends them every turn;
+the Prompt API loads them once. `OllamaConfig.maxToolRounds` bounds how many
+times one turn may come back with calls before it is failed, because a small
+model asked for the same listing until something stopped it.
 
 ### Several backends in one app
 
@@ -246,7 +308,7 @@ and every version carries a
 saying which commit and which workflow built it.
 
 **Small on purpose.** ESM only, zero runtime dependencies, and the whole entry
-is 13.6 kB minified, 4.9 kB gzipped, before tree-shaking takes the providers
+is 16.9 kB minified, 5.9 kB gzipped, before tree-shaking takes the providers
 you do not import. `modelpact/testing` is a second entry with `vitest` as an
 optional peer, so an app that only consumes a provider never loads it.
 
@@ -262,7 +324,11 @@ their own tests and their surface guards — on every change, in one run.
 
 **Next.** An OpenAI-compatible HTTP backend: one transport for
 `/v1/chat/completions`, which is the cloud APIs, vLLM, LM Studio and a
-llama.cpp server at once. Same four answers, same suite.
+llama.cpp server at once. Same four answers, same suite, and native tool calls
+the way Ollama's are handled. Then a Chrome that opens a session with tools:
+when one does, what its `execute` is handed, what a rejection does and what an
+abort does are three measurements the Prompt API backend is written to
+survive either way.
 
 ---
 
@@ -282,7 +348,7 @@ stops applying cleanly gets caught.
 
 ## The contract
 
-[`src/types`](src/types) is seven files and no runtime dependencies. Each holds one
+[`src/types`](src/types) is eight files and no runtime dependencies. Each holds one
 layer, and a fact lives on the type it is about: what a field means sits on the
 type rather than at every place it is read, so go-to-definition walks the
 reasoning instead of finding it restated.
@@ -296,6 +362,7 @@ reasoning instead of finding it restated.
 | [`session.ts`](src/types/session.ts)         | `AiSession`, `ModelAccess` and `AccessKind`, `DownloadMonitor`, the option types. |
 | [`provider.ts`](src/types/provider.ts)       | `ProviderName`, `AiProvider`.                                                     |
 | [`backend.ts`](src/types/backend.ts)         | `ModelBackend`, `ModelConnection` — the four answers a provider supplies.         |
+| [`tools.ts`](src/types/tools.ts)             | `Tool` — a name, a description, a schema and an `execute`.                        |
 
 Four ideas carry the rest:
 
@@ -340,7 +407,7 @@ that must **not** compile carries a `@ts-expect-error`, and TypeScript reports
 appear. So the file builds exactly while each listed state stays
 unrepresentable — loosen a type and the build breaks.
 
-It covers twelve of them:
+It covers thirteen of them:
 
 1. A session cannot be opened on an unavailable model
 2. A result cannot be used without handling the failure
@@ -354,6 +421,7 @@ It covers twelve of them:
 10. The monitor is the platform's, and ours passes for it
 11. A kind alias names the set without closing it to literals
 12. The record is a snapshot, not a handle
+13. A tool is a schema and a function, not a bag of fields
 
 It falls under the project tsconfig's `include`, so `npm run typecheck` checks
 it. Vitest deliberately misses it — `include` there is `*.test.ts`.

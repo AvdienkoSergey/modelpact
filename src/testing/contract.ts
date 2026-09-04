@@ -20,8 +20,9 @@
 import { describe, expect, test, type TestContext } from "vitest";
 
 import { jsonSchema, type JsonSchema } from "../types/foundations.js";
-import { AiError } from "../types/failures.js";
+import { AiError, type AiFailure } from "../types/failures.js";
 import type { AiMessage } from "../types/messages.js";
+import type { Tool } from "../types/tools.js";
 import type { AiProvider } from "../types/provider.js";
 import type {
   AiSession,
@@ -82,6 +83,29 @@ export const CONTRACT_SCHEMA = asSchema({
   additionalProperties: false,
 });
 
+/**
+ * The one tool the suite offers, and the task that cannot be finished without
+ * it. Its name is in the task on purpose: a backend with nothing behind it
+ * decides to call a tool by seeing the name, and a real model by reading the
+ * description — both reach `execute`, which is what is asserted.
+ */
+const TOOL_TASK =
+  "Use the lookupColour tool to find the colour of the item named 'kettle', then answer with just the colour.";
+
+const TOOL_ANSWER = "teal";
+
+const makeContractTool = (execute: Tool["execute"]): Tool => ({
+  name: "lookupColour",
+  description: "Return the colour recorded for an item name.",
+  inputSchema: asSchema({
+    type: "object",
+    properties: { item: { type: "string" } },
+    required: ["item"],
+    additionalProperties: false,
+  }),
+  execute,
+});
+
 /** Reader loop, not `for await`: async iteration of a stream is missing in Safari, and `lib` excludes it on purpose. */
 async function drainStream(stream: ReadableStream<string>): Promise<string[]> {
   const reader = stream.getReader();
@@ -133,6 +157,39 @@ export function describeContract(
       return null;
     }
     return mustOpenSession(await provider.access());
+  };
+
+  /**
+   * A session opened with the tool, or null once the test has been marked
+   * skipped. Two refusals are legal and both are skips that say so: at
+   * `access`, when the backend has no tool protocol, and at `open`, when the
+   * protocol is there and the model will not be created under it — Chrome 152
+   * does the second, measured.
+   */
+  const stageToolSession = async (
+    ctx: TestContext,
+    tool: Tool,
+  ): Promise<AiSession | null> => {
+    const provider = await makeProvider("ready");
+    if (provider === null) {
+      ctx.skip("ready cannot be staged");
+      return null;
+    }
+    const access = await provider.access({ tools: [tool] });
+    if (access.kind === "unavailable") {
+      expect(typeof access.reason.kind).toBe("string");
+      ctx.skip(`tools refused at access: ${access.reason.kind}`);
+      return null;
+    }
+    if (access.kind !== "ready")
+      throw new Error(`expected ready, got ${access.kind}`);
+    const sessionResult = await access.open();
+    if (!sessionResult.ok) {
+      expect(typeof sessionResult.error.kind).toBe("string");
+      ctx.skip(`tools refused at open: ${sessionResult.error.kind}`);
+      return null;
+    }
+    return sessionResult.value;
   };
 
   describe(`AiProvider contract: ${name}`, () => {
@@ -281,6 +338,134 @@ export function describeContract(
         expect(parsedAnswer).not.toBeNull();
         expect(typeof (parsedAnswer as { city?: unknown }).city).toBe("string");
         session.close();
+      });
+    });
+
+    describe("tools", () => {
+      test("a tool is executed or refused, never ignored", async (ctx) => {
+        let calls = 0;
+        const session = await stageToolSession(
+          ctx,
+          makeContractTool(() => {
+            calls += 1;
+            return TOOL_ANSWER;
+          }),
+        );
+        if (session === null) return;
+        const answerResult = await session.prompt(TOOL_TASK);
+        expect(answerResult.ok).toBe(true);
+        expect(calls).toBeGreaterThan(0);
+        session.close();
+      });
+
+      test("what the tool said reaches the answer", async (ctx) => {
+        const session = await stageToolSession(
+          ctx,
+          makeContractTool(() => TOOL_ANSWER),
+        );
+        if (session === null) return;
+        const answerResult = await session.prompt(TOOL_TASK);
+        if (!answerResult.ok) throw new AiError(answerResult.error);
+        expect(answerResult.value.toLowerCase()).toContain(TOOL_ANSWER);
+        session.close();
+      });
+
+      test("the session is busy while a tool runs", async (ctx) => {
+        let seenFromInside: string | null = null;
+        let session: AiSession | null = null;
+        session = await stageToolSession(
+          ctx,
+          makeContractTool(async () => {
+            // The turn that is running is the one this tool belongs to, so a
+            // second turn from in here is the definition of "while it runs".
+            const insideResult = await session?.prompt("and again");
+            seenFromInside =
+              insideResult === undefined
+                ? "no session"
+                : insideResult.ok
+                  ? "ok"
+                  : insideResult.error.kind;
+            return TOOL_ANSWER;
+          }),
+        );
+        if (session === null) return;
+        await session.prompt(TOOL_TASK);
+        expect(seenFromInside).toBe("busy");
+        session.close();
+      });
+
+      test("aborting during a tool call fails the turn, not the session", async (ctx) => {
+        const controller = new AbortController();
+        let handedSignal: AbortSignal | null = null;
+        const session = await stageToolSession(
+          ctx,
+          makeContractTool((_input, signal) => {
+            handedSignal = signal;
+            controller.abort();
+            return TOOL_ANSWER;
+          }),
+        );
+        if (session === null) return;
+        const answerResult = await session.prompt(TOOL_TASK, {
+          signal: controller.signal,
+        });
+        expect(answerResult.ok).toBe(false);
+        if (!answerResult.ok) expect(answerResult.error.kind).toBe("aborted");
+        // The tool was handed the turn's signal, and the turn's signal follows
+        // the caller's: a tool that listens stops when the caller says so.
+        expect(handedSignal).toBeInstanceOf(AbortSignal);
+        expect((handedSignal as AbortSignal | null)?.aborted).toBe(true);
+        const nextResult = await session.prompt("Name the capital of France.");
+        expect(nextResult.ok).toBe(true);
+        session.close();
+      });
+
+      test("a tool that throws fails the turn by name", async (ctx) => {
+        let calls = 0;
+        // Once: a real model may reach for the tool again on the next turn,
+        // and what is asserted about that turn is only that the session is
+        // still open, not what the model decides to do in it.
+        const session = await stageToolSession(
+          ctx,
+          makeContractTool(() => {
+            calls += 1;
+            if (calls === 1) throw new Error("the record is locked");
+            return TOOL_ANSWER;
+          }),
+        );
+        if (session === null) return;
+        const answerResult = await session.prompt(TOOL_TASK);
+        expect(answerResult.ok).toBe(false);
+        if (answerResult.ok) return;
+        const failure: AiFailure = answerResult.error;
+        expect(failure.kind).toBe("failed");
+        if (failure.kind === "failed")
+          expect(failure.detail).toContain("lookupColour");
+        const nextResult = await session.prompt("Name the capital of France.");
+        expect(nextResult.ok).toBe(true);
+        session.close();
+      });
+
+      test("tools are charged to the window", async (ctx) => {
+        const provider = await makeProvider("ready");
+        if (provider === null) return ctx.skip();
+        const plainSession = await mustOpenSession(await provider.access());
+        await plainSession.prompt(TOOL_TASK);
+        const plainUsage = plainSession.usage();
+        plainSession.close();
+        const toolSession = await stageToolSession(
+          ctx,
+          makeContractTool(() => TOOL_ANSWER),
+        );
+        if (toolSession === null) return;
+        await toolSession.prompt(TOOL_TASK);
+        const toolUsage = toolSession.usage();
+        toolSession.close();
+        if (plainUsage.kind === "unknown" || toolUsage.kind === "unknown")
+          return ctx.skip("usage is unknown for this backend");
+        // The declarations sit in the window from open, and the tool's answer
+        // joins them: the same task costs more with a tool than without.
+        expect(toolUsage.used).toBeGreaterThan(plainUsage.used);
       });
     });
 

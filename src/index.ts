@@ -34,6 +34,7 @@ export type {
   ModalityExpectation,
   ModelRequest,
 } from "./types/messages.js";
+export type { Tool } from "./types/tools.js";
 export {
   AiError,
   failureFromError,
