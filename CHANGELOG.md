@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.2.0](https://github.com/AvdienkoSergey/modelpact/compare/v2.1.0...v2.2.0) (2026-09-04)
+
+
+### Features
+
+* a modelpact/backend entry for transport authors ([9cc0458](https://github.com/AvdienkoSergey/modelpact/commit/9cc045856446774b50fb4be47b5b945ba5bae81a))
+* a modelpact/backend entry for transport authors ([194c258](https://github.com/AvdienkoSergey/modelpact/commit/194c258a7b1f77626e74b550105fdb41a8d2a5b3))
+
 ## [2.1.0](https://github.com/AvdienkoSergey/modelpact/compare/v2.0.5...v2.1.0) (2026-09-04)
 
 
