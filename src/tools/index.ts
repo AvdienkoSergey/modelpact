@@ -1,9 +1,15 @@
 /**
- * `modelpact/tools`: tools written against the contract, for a page.
+ * `modelpact/tools`: tools written against the contract.
  *
- * A separate entry because these read the DOM. The main entry runs in node
- * too, and nothing in it names `document`; an app that only consumes a
- * provider never loads this.
+ * One so far, and it is the fixture: a mock tool, the counterpart of the mock
+ * provider, for a suite that needs a call to have happened and a demo that
+ * needs one to show. Tools that read a real page belong to a package of
+ * their own, the way real transports do.
  */
 
-export { makePageTextTool, type PageTextConfig } from "./page-text.js";
+export {
+  makeMockTool,
+  type MockTool,
+  type MockToolCall,
+  type MockToolConfig,
+} from "./mock.js";

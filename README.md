@@ -272,11 +272,12 @@ throws `InvalidStateError`, measured — and that lands as `invalid-state` from
 call out of a schema-constrained answer, which is what
 [`external/agent`](external/agent) already does.
 
-`modelpact/tools` is a third entry, for tools that read a page: `pageText`
-returns the visible text of the document or of one element by selector, cut to
-fit a window, and every mistake in the arguments comes back as words the model
-can act on. A separate entry because it names `document`, and the main entry
-runs in node.
+`modelpact/tools` is a third entry, and what it holds is the fixture: a mock
+tool, the counterpart of the mock provider. Words in, words out, a record of
+every call, and a `reply` that can throw to stage a tool that breaks. The demo
+runs its "Read the page" scene on it, and a suite that needs a call to have
+happened opens a session with it. Tools that read a real page are a package
+of their own, the way real transports are.
 
 Tools cost window. Measured on Ollama across three models, one tool with a
 one-sentence description and a few parameters is about 50 tokens, plus 100 to

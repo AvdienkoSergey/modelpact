@@ -7,7 +7,7 @@ import type {
   Tool,
   UsageKind,
 } from "modelpact";
-import { makePageTextTool } from "modelpact/tools";
+import { makeMockTool } from "modelpact/tools";
 
 import {
   PROVIDER_NAMES,
@@ -86,6 +86,18 @@ function explainFailure(failure: AiFailure): string {
 /** The one tool the demo offers; an array, so the request either carries it or carries nothing. */
 const NO_TOOLS: readonly Tool[] = [];
 
+/**
+ * The mock tool with the page's title behind it: enough to show a call
+ * happening inside a turn, and nothing for a real page reader to be needed
+ * for. On the mock backend it runs when its name is in the message.
+ */
+const makePageTitleTool = (): Tool =>
+  makeMockTool({
+    name: "pageTitle",
+    description: "The title of the current page.",
+    reply: () => document.title,
+  });
+
 function Meter({ usage }: { usage: ContextUsage }) {
   if (usage.kind !== "bounded")
     return <span className="meter-text">{NO_BUDGET_LABELS[usage.kind]}</span>;
@@ -109,7 +121,7 @@ export function App() {
   // Memoised because the hook reopens the session when the tools change, and
   // a fresh array on every render would reopen it on every render.
   const tools = useMemo(
-    () => (readsPage ? [makePageTextTool()] : NO_TOOLS),
+    () => (readsPage ? [makePageTitleTool()] : NO_TOOLS),
     [readsPage],
   );
   const chat = useChat(providerName, tools);
