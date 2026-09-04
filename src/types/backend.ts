@@ -63,6 +63,12 @@ export interface ModelBackend {
   readonly name: ProviderName;
   /** What the model can be asked for; a request outside it is refused before `availability` runs. */
   readonly modalities: readonly Modality[];
+  /**
+   * True for a backend whose transport executes tools, itself or through the
+   * platform. Absent or false, a request carrying tools is refused before
+   * `availability` runs, the way an unserved modality is.
+   */
+  readonly tools?: boolean;
   readonly availability: (
     request: ModelRequest,
   ) => Availability | Promise<Availability>;

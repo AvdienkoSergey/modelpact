@@ -19,7 +19,12 @@
  * package at all. `external/webgpu-provider` is where that was found.
  */
 
-import { failureFromError, type AiFailure } from "../types/failures.js";
+import { runTool } from "../helpers/tools.js";
+import {
+  AiError,
+  failureFromError,
+  type AiFailure,
+} from "../types/failures.js";
 import {
   err,
   fraction,
@@ -37,6 +42,7 @@ import type {
 } from "../types/backend.js";
 import type { AiProvider } from "../types/provider.js";
 import type { SessionOptions } from "../types/session.js";
+import type { Tool } from "../types/tools.js";
 import { contextUsage, type ContextUsage } from "../types/usage.js";
 import { createProvider } from "./create.js";
 
@@ -66,14 +72,74 @@ const toExpectations = (
   }));
 };
 
+/**
+ * What a tool needs from the turn it runs in. Tools are bound at `create`,
+ * before any turn exists, so each turn puts its signal in here and takes out
+ * the failure a tool left behind.
+ */
+interface ToolTurn {
+  signal: AbortSignal;
+  failure: AiFailure | null;
+}
+
+const NEVER_ABORTED = new AbortController().signal;
+
+const makeToolTurn = (): ToolTurn => ({ signal: NEVER_ABORTED, failure: null });
+
+const asRecord = (value: unknown): Record<string, unknown> | null =>
+  typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+
+/**
+ * The browser hands `execute` the model's arguments and nothing else. One
+ * plain object, which is what Chrome's examples pass, goes through as the
+ * input; anything else is kept whole under `arguments`. Unverified against a
+ * running call: no Chrome to date has created a session with tools here —
+ * 152 refuses at `create`, measured.
+ */
+const toToolInput = (args: readonly unknown[]): Record<string, unknown> =>
+  asRecord(args[0]) ?? { arguments: [...args] };
+
+const toPlatformTools = (
+  tools: readonly Tool[],
+  turn: ToolTurn,
+): LanguageModelTool[] =>
+  tools.map((tool) => ({
+    name: tool.name,
+    description: tool.description,
+    inputSchema: tool.inputSchema,
+    execute: async (...args: unknown[]) => {
+      const toolResult = await runTool(tool, toToolInput(args), turn.signal);
+      if (toolResult.ok) return toolResult.value;
+      // Remembered as well as thrown: whatever the browser does with a
+      // rejected execute, the turn ends with this failure.
+      turn.failure = toolResult.error;
+      throw new AiError(toolResult.error);
+    },
+  }));
+
+/** Chrome 152 refuses tools unless a tool-call output is expected; the spec text does not say so (measured). */
+const withToolCallOutput = (
+  outputs: LanguageModelExpected[] | undefined,
+  hasTools: boolean,
+): LanguageModelExpected[] | undefined =>
+  hasTools ? [...(outputs ?? []), { type: "tool-call" }] : outputs;
+
 const toCoreOptions = (
   request: ModelRequest,
+  turn: ToolTurn,
 ): LanguageModelCreateCoreOptions => {
+  const tools = request.tools ?? [];
   const inputs = toExpectations(request.inputs);
-  const outputs = toExpectations(request.outputs);
+  const outputs = withToolCallOutput(
+    toExpectations(request.outputs),
+    tools.length > 0,
+  );
   return {
     ...(inputs === undefined ? {} : { expectedInputs: inputs }),
     ...(outputs === undefined ? {} : { expectedOutputs: outputs }),
+    ...(tools.length === 0 ? {} : { tools: toPlatformTools(tools, turn) }),
   };
 };
 
@@ -110,7 +176,9 @@ const getAvailability = async (
   if (api === null)
     return { kind: "unavailable", reason: { kind: "unsupported" } };
   try {
-    const specAvailability = await api.availability(toCoreOptions(request));
+    const specAvailability = await api.availability(
+      toCoreOptions(request, makeToolTurn()),
+    );
     return toAvailability(specAvailability);
   } catch (error) {
     // `NotAllowedError` for the permissions policy, `InvalidStateError` for a
@@ -165,9 +233,11 @@ const readNumber = (
 
 class PromptApiModel implements ModelConnection {
   readonly #session: LanguageModel;
+  readonly #turn: ToolTurn;
 
-  constructor(session: LanguageModel) {
+  constructor(session: LanguageModel, turn: ToolTurn) {
     this.#session = session;
+    this.#turn = turn;
   }
 
   readonly generateStream = (
@@ -175,11 +245,12 @@ class PromptApiModel implements ModelConnection {
     request: GenerateRequest,
   ): Promise<Result<ReadableStream<string>, AiFailure>> => {
     try {
+      this.#beginTurn(request);
       const deltas = this.#session.promptStreaming(
         input,
         toPromptOptions(request),
       );
-      return Promise.resolve(ok(deltas));
+      return Promise.resolve(ok(deltas.pipeThrough(this.#failIfToolFailed())));
     } catch (error) {
       return Promise.resolve(err(this.#refineFailure(error)));
     }
@@ -190,11 +261,13 @@ class PromptApiModel implements ModelConnection {
     request: GenerateRequest,
   ): Promise<Result<string, AiFailure>> => {
     try {
+      this.#beginTurn(request);
       const answerText = await this.#session.prompt(
         input,
         toPromptOptions(request),
       );
-      return ok(answerText);
+      const toolFailure = this.#turn.failure;
+      return toolFailure === null ? ok(answerText) : err(toolFailure);
     } catch (error) {
       return err(this.#refineFailure(error));
     }
@@ -206,11 +279,29 @@ class PromptApiModel implements ModelConnection {
     this.#session.destroy();
   };
 
+  #beginTurn(request: GenerateRequest): void {
+    this.#turn.signal = request.signal;
+    this.#turn.failure = null;
+  }
+
+  /** A stream that ended is not an answer if a tool failed on the way: the end is where that is checked. */
+  #failIfToolFailed(): TransformStream<string, string> {
+    return new TransformStream({
+      flush: () => {
+        const toolFailure = this.#turn.failure;
+        if (toolFailure !== null) throw new AiError(toolFailure);
+      },
+    });
+  }
+
   /**
    * `QuotaExceededError` carries no measurement, and the generic mapping says
-   * so; holding the session is what lets this one attach the reading.
+   * so; holding the session is what lets this one attach the reading. A tool
+   * failure outranks whatever the browser threw about it.
    */
   #refineFailure(error: unknown): AiFailure {
+    const toolFailure = this.#turn.failure;
+    if (toolFailure !== null) return toolFailure;
     const failure = failureFromError(error);
     return failure.kind === "context-overflow"
       ? { ...failure, usage: this.usage() }
@@ -225,9 +316,10 @@ const connectPromptApi = async (
   if (api === null) return err({ kind: "unsupported" });
 
   const initialPrompts = toInitialPrompts(options.session);
+  const turn = makeToolTurn();
   try {
     const session = await api.create({
-      ...toCoreOptions(options.request),
+      ...toCoreOptions(options.request, turn),
       ...(initialPrompts === undefined ? {} : { initialPrompts }),
       ...(options.session.signal === undefined
         ? {}
@@ -249,7 +341,7 @@ const connectPromptApi = async (
     session.oncontextoverflow = () => {
       options.reportOverflow();
     };
-    return ok(new PromptApiModel(session));
+    return ok(new PromptApiModel(session, turn));
   } catch (error) {
     return err(failureFromError(error));
   }
@@ -261,6 +353,9 @@ export function makePromptApiProvider(): AiProvider {
     // Text only, because that is all `AiMessage` carries. The model takes more,
     // and asking for it would promise a message this contract cannot build.
     modalities: ["text"],
+    // The platform executes them itself; whether a given Chrome will open such
+    // a session is its `create` to refuse, and that refusal is what `open` returns.
+    tools: true,
     availability: (request) => getAvailability(request),
     connect: (options) => connectPromptApi(options),
   };

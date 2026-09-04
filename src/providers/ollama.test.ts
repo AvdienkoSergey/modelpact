@@ -9,7 +9,15 @@
 import { describe, expect, test, vi } from "vitest";
 
 import { CONTRACT_SCHEMA, describeContract } from "../testing/contract.js";
+import { jsonSchema, type JsonSchema } from "../types/foundations.js";
+import type { Tool } from "../types/tools.js";
 import { makeOllamaProvider, type OllamaConfig } from "./ollama.js";
+
+const asSchema = (value: Record<string, unknown>): JsonSchema => {
+  const schema = jsonSchema(value);
+  if (schema === null) throw new Error("not a schema");
+  return schema;
+};
 
 // The model answers in a second or two, but the first call of a run loads it.
 vi.setConfig({ testTimeout: 60_000 });
@@ -123,6 +131,76 @@ const makeChatResponse =
       { message: { content: "" }, done: true, ...counts },
     );
   };
+
+/** A round the daemon ends in a call, streamed the way it streams one: the call on one line, the counts on the last. */
+const makeToolCallResponse = (
+  name: string,
+  callArguments: Record<string, unknown>,
+): Response =>
+  makeNdjsonResponse(
+    {
+      message: {
+        role: "assistant",
+        content: "",
+        tool_calls: [
+          { function: { index: 0, name, arguments: callArguments } },
+        ],
+      },
+      done: false,
+    },
+    {
+      message: { role: "assistant", content: "" },
+      done: true,
+      prompt_eval_count: 40,
+      eval_count: 12,
+    },
+  );
+
+const makeLookupTool = (execute: Tool["execute"]): Tool => ({
+  name: "lookupColour",
+  description: "Return the colour recorded for an item name.",
+  inputSchema: asSchema({
+    type: "object",
+    properties: { item: { type: "string" } },
+    required: ["item"],
+  }),
+  execute,
+});
+
+/** A daemon whose chat answers come from a script, one per round, in order. */
+const makeScriptedProvider = (
+  rounds: readonly ((init: RequestInit | undefined) => Response)[],
+  sentBodies: Record<string, unknown>[],
+  config: Partial<OllamaConfig> = {},
+) =>
+  makeOllamaProvider({
+    model: MODEL,
+    host: HOST,
+    ...config,
+    fetch: (input, init) => {
+      const url = toUrl(input);
+      if (url.includes("/api/tags"))
+        return Promise.resolve(makeTagsResponse(MODEL));
+      sentBodies.push(readSentBody(init));
+      const respond =
+        rounds[sentBodies.length - 1] ?? rounds[rounds.length - 1];
+      if (respond === undefined) throw new Error("no rounds scripted");
+      return Promise.resolve(respond(init));
+    },
+  });
+
+const mustOpenWithTool = async (
+  provider: ReturnType<typeof makeStubbedProvider>,
+  tool: Tool,
+) => {
+  const access = await provider.access({ tools: [tool] });
+  if (access.kind !== "ready")
+    throw new Error(`expected ready, got ${access.kind}`);
+  const sessionResult = await access.open();
+  if (!sessionResult.ok)
+    throw new Error(`open refused: ${sessionResult.error.kind}`);
+  return sessionResult.value;
+};
 
 const makeStubbedProvider = (
   routes: Record<string, (init: RequestInit | undefined) => Response>,
@@ -293,6 +371,107 @@ describe("ollama without a daemon", () => {
     // the history — so the meter repeats rather than doubling.
     expect(firstUsage).toEqual(secondUsage);
     if (firstUsage.kind === "bounded") expect(firstUsage.used).toBe(32);
+    session.close();
+  });
+
+  test("tools travel as functions, and a call comes back as a tool turn", async () => {
+    const sentBodies: Record<string, unknown>[] = [];
+    let seenArguments: Record<string, unknown> | null = null;
+    const provider = makeScriptedProvider(
+      [
+        () => makeToolCallResponse("lookupColour", { item: "kettle" }),
+        makeChatResponse("teal"),
+      ],
+      sentBodies,
+    );
+    const session = await mustOpenWithTool(
+      provider,
+      makeLookupTool((input) => {
+        seenArguments = input;
+        return "teal";
+      }),
+    );
+
+    const answerResult = await session.prompt("What colour is the kettle?");
+    expect(answerResult.ok).toBe(true);
+    if (answerResult.ok) expect(answerResult.value).toBe("teal");
+    expect(seenArguments).toEqual({ item: "kettle" });
+    expect(sentBodies[0]?.tools).toEqual([
+      {
+        type: "function",
+        function: {
+          name: "lookupColour",
+          description: "Return the colour recorded for an item name.",
+          parameters: {
+            type: "object",
+            properties: { item: { type: "string" } },
+            required: ["item"],
+          },
+        },
+      },
+    ]);
+    // The second round carries the call as the model's own turn and the
+    // answer under the `tool` role, which is the shape the template renders.
+    const secondMessages = (sentBodies[1] as { messages: unknown[] }).messages;
+    expect(secondMessages.slice(-2)).toEqual([
+      {
+        role: "assistant",
+        content: "",
+        tool_calls: [
+          { function: { name: "lookupColour", arguments: { item: "kettle" } } },
+        ],
+      },
+      { role: "tool", content: "teal", tool_name: "lookupColour" },
+    ]);
+    session.close();
+  });
+
+  test("a model that keeps calling is stopped with a reason", async () => {
+    const sentBodies: Record<string, unknown>[] = [];
+    const provider = makeScriptedProvider(
+      [() => makeToolCallResponse("lookupColour", { item: "kettle" })],
+      sentBodies,
+      { maxToolRounds: 2 },
+    );
+    const session = await mustOpenWithTool(
+      provider,
+      makeLookupTool(() => "teal"),
+    );
+
+    const answerResult = await session.prompt("What colour is the kettle?");
+    expect(answerResult.ok).toBe(false);
+    if (!answerResult.ok) {
+      expect(answerResult.error.kind).toBe("failed");
+      if (answerResult.error.kind === "failed")
+        expect(answerResult.error.detail).toContain("without answering");
+    }
+    // Two rounds were allowed, so three requests went out before the stop.
+    expect(sentBodies).toHaveLength(3);
+    session.close();
+  });
+
+  test("a name the model made up is answered by name, not by failing the turn", async () => {
+    const sentBodies: Record<string, unknown>[] = [];
+    const provider = makeScriptedProvider(
+      [
+        () => makeToolCallResponse("openSafe", { code: "1234" }),
+        makeChatResponse("no such tool, sorry"),
+      ],
+      sentBodies,
+    );
+    const session = await mustOpenWithTool(
+      provider,
+      makeLookupTool(() => "teal"),
+    );
+
+    const answerResult = await session.prompt("Open the safe.");
+    expect(answerResult.ok).toBe(true);
+    const secondMessages = (sentBodies[1] as { messages: unknown[] }).messages;
+    expect(secondMessages.at(-1)).toEqual({
+      role: "tool",
+      content: 'there is no tool called "openSafe"',
+      tool_name: "openSafe",
+    });
     session.close();
   });
 });

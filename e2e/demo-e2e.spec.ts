@@ -238,3 +238,26 @@ test("the webgpu entry, from another package, lands in a state", async ({
     ).toBeVisible();
   }
 });
+
+/**
+ * A tool, from `modelpact/tools`, through the whole stack: the request carries
+ * it, the session opens with it, the mock calls it when its name is in the
+ * message, and what it read — this very page — is the end of the answer. The
+ * chip is what says the open session is the one with the tool: the box
+ * changes first, and a message sent before the reopen would go to the old
+ * session, which has none.
+ */
+test("a tool reads the page, and the answer carries what it read", async ({
+  page,
+}) => {
+  await page.getByLabel("Read the page").check();
+  await expect(chip(page)).toHaveText("ready · tools", { timeout: 15_000 });
+  await opened(page);
+
+  await ask(page, "Use pageText to read this page.");
+  const assistant = page.locator(".record li.assistant");
+  await expect(assistant).toHaveCount(1);
+  await expect(assistant).toContainText("modelpact");
+  await expect(page.locator(".record li.tool")).toHaveText(/^pageText · /);
+  await expect(assistant).toContainText("Read the page");
+});

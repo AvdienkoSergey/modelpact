@@ -1,11 +1,13 @@
-import { useState, type FormEvent } from "react";
+import { useMemo, useState, type FormEvent } from "react";
 import type {
   AccessKind,
   AiFailure,
   ContextUsage,
   FailureKind,
+  Tool,
   UsageKind,
 } from "modelpact";
+import { makePageTextTool } from "modelpact/tools";
 
 import {
   PROVIDER_NAMES,
@@ -56,7 +58,12 @@ const NO_BUDGET_LABELS: Record<Exclude<UsageKind, "bounded">, string> = {
  */
 function getStatusLabel(chat: Chat): string {
   if (chat.access === null) return "asking…";
-  return chat.ready ? ACCESS_LABELS.ready : ACCESS_LABELS[chat.access];
+  if (!chat.ready) return ACCESS_LABELS[chat.access];
+  // What the session was opened with, not what the box says: the box changes
+  // first, and the session that reads the page is the one opened after it.
+  return chat.openedWithTools
+    ? `${ACCESS_LABELS.ready} · tools`
+    : ACCESS_LABELS.ready;
 }
 
 /** Three states, three prompts: nothing here should read as "still loading". */
@@ -70,8 +77,14 @@ function getPlaceholder(chat: Chat): string {
 function explainFailure(failure: AiFailure): string {
   const notice = FAILURE_NOTICES[failure.kind];
   // Only some kinds carry a detail, and narrowing is what says which.
-  return failure.kind === "busy" ? `${notice}: ${failure.detail}` : notice;
+  if (failure.kind === "busy") return `${notice}: ${failure.detail}`;
+  if (failure.kind === "unsupported-config" && failure.tools === true)
+    return "This backend has no tool protocol. Untick “Read the page” to use it.";
+  return notice;
 }
+
+/** The one tool the demo offers; an array, so the request either carries it or carries nothing. */
+const NO_TOOLS: readonly Tool[] = [];
 
 function Meter({ usage }: { usage: ContextUsage }) {
   if (usage.kind !== "bounded")
@@ -92,7 +105,14 @@ function Meter({ usage }: { usage: ContextUsage }) {
 export function App() {
   const [providerName, setProviderName] = useState<ProviderName>("mock");
   const [draft, setDraft] = useState("");
-  const chat = useChat(providerName);
+  const [readsPage, setReadsPage] = useState(false);
+  // Memoised because the hook reopens the session when the tools change, and
+  // a fresh array on every render would reopen it on every render.
+  const tools = useMemo(
+    () => (readsPage ? [makePageTextTool()] : NO_TOOLS),
+    [readsPage],
+  );
+  const chat = useChat(providerName, tools);
   const isBusy = chat.streamingAnswer !== null;
 
   const handleSubmit = (event: FormEvent) => {
@@ -119,6 +139,14 @@ export function App() {
             </option>
           ))}
         </select>
+        <label className="toggle">
+          <input
+            type="checkbox"
+            checked={readsPage}
+            onChange={(event) => setReadsPage(event.target.checked)}
+          />
+          Read the page
+        </label>
         <span className="status">
           <span className="chip">{getStatusLabel(chat)}</span>
           <Meter usage={chat.usage} />
@@ -151,6 +179,11 @@ export function App() {
         {chat.record.map((message, index) => (
           <li key={index} className={message.role}>
             {message.content}
+          </li>
+        ))}
+        {chat.toolNotes.map((note, index) => (
+          <li key={`tool-${index}`} className="tool">
+            {note.name} · {note.preview}
           </li>
         ))}
         {chat.streamingAnswer !== null && (

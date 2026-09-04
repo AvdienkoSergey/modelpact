@@ -14,7 +14,8 @@
 // `// prettier-ignore`. The break is loud, not silent — it surfaces as TS2578.
 
 import { jsonSchema, tokens } from "./types/foundations.js";
-import type { AiMessage } from "./types/messages.js";
+import type { AiMessage, ModelRequest } from "./types/messages.js";
+import type { Tool } from "./types/tools.js";
 import {
   contextUsage,
   type ContextUsage,
@@ -253,4 +254,31 @@ export function listenToMonitor(monitor: DownloadMonitor) {
   );
   // @ts-expect-error and that is the point: loaded is not on Event
   monitor.addEventListener("downloadprogress", (e) => console.log(e.loaded));
+}
+
+// --- 13. A tool is a schema and a function, not a bag of fields ---
+// `inputSchema` goes through the same door as `responseConstraint`: only a
+// value the constructor has checked is a `JsonSchema`, so a `Date` or a class
+// cannot reach the platform under that name.
+export const lookupTool: Tool = {
+  name: "lookupColour",
+  description: "Return the colour recorded for an item name.",
+  inputSchema: jsonSchema({ type: "object" })!,
+  // Fewer parameters than the contract hands over is fine: a tool that never
+  // looks at the signal is still a tool.
+  execute: (input) => String(input.item),
+};
+// prettier-ignore
+// @ts-expect-error an object literal is not a JsonSchema until the constructor said so
+export const looseTool: Tool = { name: "x", description: "y", inputSchema: { type: "object" }, execute: () => "" };
+// prettier-ignore
+// @ts-expect-error a tool without execute is a description, not a tool
+export const inertTool: Tool = { name: "x", description: "y", inputSchema: jsonSchema({})! };
+export const requestWithTools: ModelRequest = { tools: [lookupTool] };
+// The refusal a request with tools gets from a backend without them carries
+// the field that says so, and only that variant carries it.
+export function describeToolRefusal(failure: AiFailure): boolean {
+  if (failure.kind === "unsupported-config") return failure.tools === true;
+  // @ts-expect-error tools exists only on unsupported-config
+  return failure.tools === true;
 }

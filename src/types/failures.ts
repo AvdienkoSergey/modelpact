@@ -33,6 +33,8 @@ export type AiFailure = { readonly cause?: unknown } & (
       readonly kind: "unsupported-config";
       readonly languages: readonly string[];
       readonly modalities?: readonly Modality[];
+      /** The request asked for tools and this backend has no protocol for them. */
+      readonly tools?: true;
     }
   /**
    * The message the caller built is not accepted. Kept apart from

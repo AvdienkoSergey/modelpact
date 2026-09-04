@@ -18,8 +18,16 @@
 import { afterEach, describe, expect, test } from "vitest";
 
 import { CONTRACT_SCHEMA, describeContract } from "../testing/contract.js";
+import { jsonSchema, type JsonSchema } from "../types/foundations.js";
 import type { AiProvider } from "../types/provider.js";
+import type { Tool } from "../types/tools.js";
 import { makePromptApiProvider } from "./prompt-api.js";
+
+const asSchema = (value: Record<string, unknown>): JsonSchema => {
+  const schema = jsonSchema(value);
+  if (schema === null) throw new Error("not a schema");
+  return schema;
+};
 
 interface FakeOptions {
   readonly availability?: Awaited<
@@ -33,6 +41,10 @@ interface FakeOptions {
   /** Absent, the fake answers by echoing; present, it answers this. */
   readonly schemaReply?: string;
   readonly delayMs?: number;
+  /** `create` throws InvalidStateError when tools are handed over, as Chrome 152 does. */
+  readonly refuseTools?: boolean;
+  /** A rejected `execute` is swallowed and the answer goes on, to stand in for a browser that does that. */
+  readonly swallowToolErrors?: boolean;
 }
 
 const sleep = (ms: number): Promise<void> =>
@@ -63,11 +75,19 @@ function makeFakeLanguageModel(
     oncontextoverflow: ((event: Event) => void) | null = null;
     #destroyed = false;
     #fired = false;
+    readonly #tools: readonly LanguageModelTool[];
 
-    constructor(initialMessages: readonly { content: string }[]) {
+    constructor(
+      initialMessages: readonly { content: string }[],
+      tools: readonly LanguageModelTool[],
+    ) {
       super();
+      this.#tools = tools;
       for (const message of initialMessages)
         this.contextUsage += countWords(message.content);
+      // Loaded into the window at create, as the spec has it.
+      for (const tool of tools)
+        this.contextUsage += countWords(`${tool.name} ${tool.description}`);
     }
 
     async prompt(
@@ -98,6 +118,13 @@ function makeFakeLanguageModel(
       const replyParts = isConstrained
         ? [options.schemaReply ?? ""]
         : generateReply(input);
+      // A tool named in the input is called with the model's arguments, and
+      // what it said is the last delta — the platform's `execute` seen from
+      // the outside, without a model deciding anything.
+      const namedTools = this.#tools.filter((tool) =>
+        input.includes(tool.name),
+      );
+      let toolParts: string[] | null = null;
 
       let index = 0;
       return new ReadableStream<string>({
@@ -106,6 +133,20 @@ function makeFakeLanguageModel(
           if (signal?.aborted === true || this.#destroyed) {
             controller.error(abortError("aborted"));
             return;
+          }
+          if (toolParts === null) {
+            toolParts = [];
+            for (const tool of namedTools) {
+              try {
+                toolParts.push(await tool.execute({ item: "kettle" }));
+              } catch (error) {
+                if (options.swallowToolErrors !== true) {
+                  controller.error(error);
+                  return;
+                }
+              }
+            }
+            replyParts.push(...toolParts);
           }
           const part = replyParts[index];
           if (part === undefined) {
@@ -140,6 +181,12 @@ function makeFakeLanguageModel(
     create: async (createOptions?: LanguageModelCreateOptions) => {
       options.failCreate?.();
       if (createOptions?.signal?.aborted === true) throw abortError("aborted");
+      const tools = createOptions?.tools ?? [];
+      if (tools.length > 0 && options.refuseTools === true)
+        throw namedError(
+          "InvalidStateError",
+          "The device is unable to create a session to run the model.",
+        );
       // Before any await, as the spec requires and the contract asserts.
       createOptions?.monitor?.(
         makeReportingMonitor(options.downloadSteps ?? []),
@@ -150,7 +197,10 @@ function makeFakeLanguageModel(
         (message) =>
           message.role !== "system" && typeof message.content === "string",
       ) as { content: string }[];
-      return new FakeSession(carriedMessages) as unknown as LanguageModel;
+      return new FakeSession(
+        carriedMessages,
+        tools,
+      ) as unknown as LanguageModel;
     },
   } as unknown as typeof LanguageModel;
 }
@@ -184,6 +234,13 @@ const abortError = (message: string): Error =>
   namedError("AbortError", message);
 
 const SCHEMA_REPLY = JSON.stringify({ city: "Paris" });
+
+const makeLookupTool = (execute: Tool["execute"]): Tool => ({
+  name: "lookupColour",
+  description: "Return the colour recorded for an item name.",
+  inputSchema: asSchema({ type: "object" }),
+  execute,
+});
 
 const globalScope = globalThis as { LanguageModel?: typeof LanguageModel };
 
@@ -327,6 +384,70 @@ describe("prompt-api mapping", () => {
       { role: "system", content: "Answer in one sentence." },
       { role: "user", content: "earlier" },
     ]);
+    sessionResult.value.close();
+  });
+
+  test("tools go to create, with a tool-call output expected", async () => {
+    let seenCreateOptions: LanguageModelCreateOptions | undefined;
+    const api = makeFakeLanguageModel();
+    globalScope.LanguageModel = {
+      availability: api.availability.bind(api),
+      create: (createOptions?: LanguageModelCreateOptions) => {
+        seenCreateOptions = createOptions;
+        return api.create(createOptions);
+      },
+    } as unknown as typeof LanguageModel;
+
+    const access = await makePromptApiProvider().access({
+      outputs: [{ type: "text", languages: ["en"] }],
+      tools: [makeLookupTool(() => "teal")],
+    });
+    if (access.kind !== "ready") throw new Error("expected ready");
+    const sessionResult = await access.open();
+    if (!sessionResult.ok) throw new Error("expected a session");
+
+    expect(seenCreateOptions?.tools?.map((tool) => tool.name)).toEqual([
+      "lookupColour",
+    ]);
+    // Chrome 152 refuses the session otherwise, whatever the spec text says.
+    expect(seenCreateOptions?.expectedOutputs).toEqual([
+      { type: "text", languages: ["en"] },
+      { type: "tool-call" },
+    ]);
+    sessionResult.value.close();
+  });
+
+  test("a create that refuses tools is a refusal at open, not at access", async () => {
+    const provider = makeFakeProvider({ refuseTools: true });
+    const access = await provider.access({
+      tools: [makeLookupTool(() => "teal")],
+    });
+    expect(access.kind).toBe("ready");
+    if (access.kind !== "ready") return;
+    const sessionResult = await access.open();
+    expect(sessionResult.ok).toBe(false);
+    if (!sessionResult.ok)
+      expect(sessionResult.error.kind).toBe("invalid-state");
+  });
+
+  test("a tool's failure ends the turn even when the browser swallows it", async () => {
+    const provider = makeFakeProvider({ swallowToolErrors: true });
+    const access = await provider.access({
+      tools: [
+        makeLookupTool(() => {
+          throw new Error("the record is locked");
+        }),
+      ],
+    });
+    if (access.kind !== "ready") throw new Error("expected ready");
+    const sessionResult = await access.open();
+    if (!sessionResult.ok) throw new Error("expected a session");
+
+    const answerResult = await sessionResult.value.prompt(
+      "Use lookupColour for the kettle.",
+    );
+    expect(answerResult.ok).toBe(false);
+    if (!answerResult.ok) expect(answerResult.error.kind).toBe("failed");
     sessionResult.value.close();
   });
 });

@@ -26,7 +26,8 @@ import {
 } from "../types/foundations.js";
 import type { AiFailure } from "../types/failures.js";
 import type { AiProvider } from "../types/provider.js";
-import type { SessionOptions } from "../types/session.js";
+import type { Tool } from "../types/tools.js";
+import { runTool } from "../helpers/tools.js";
 import { contextUsage, type ContextUsage } from "../types/usage.js";
 import { createProvider } from "./create.js";
 
@@ -89,27 +90,38 @@ class MockModel implements ModelConnection {
   readonly #reply: (input: string) => readonly string[];
   readonly #schemaReply: string | undefined;
   readonly #delayMs: number;
+  readonly #tools: readonly Tool[];
   #usedTokens = 0;
 
-  constructor(config: MockConfig, history: SessionOptions["history"]) {
+  constructor(config: MockConfig, options: ConnectOptions) {
     this.#contextWindow = config.contextWindow ?? DEFAULTS.contextWindow;
     this.#reply = config.reply ?? DEFAULTS.reply;
     this.#schemaReply = config.schemaReply;
     this.#delayMs = config.delayMs ?? DEFAULTS.delayMs;
-    // Charged at open, as a real backend charges a transcript it was handed.
-    for (const message of history ?? []) {
+    this.#tools = options.request.tools ?? [];
+    // Charged at open, as a real backend charges a transcript it was handed,
+    // and the tools with it: the spec loads them into the window at create.
+    for (const message of options.session.history ?? []) {
       this.#usedTokens += countTokens(message.content);
+    }
+    for (const tool of this.#tools) {
+      this.#usedTokens += countTokens(`${tool.name} ${tool.description}`);
     }
   }
 
-  readonly generateStream = (
+  readonly generateStream = async (
     input: string,
     request: GenerateRequest,
   ): Promise<Result<ReadableStream<string>, AiFailure>> => {
     const replyParts = this.#chooseReply(input, request.schema);
-    if (replyParts === null) return Promise.resolve(err(NO_SCHEMA_REPLY));
-    const stream = this.#streamReply(input, replyParts);
-    return Promise.resolve(ok(stream));
+    if (replyParts === null) return err(NO_SCHEMA_REPLY);
+    const toolsResult = await this.#callNamedTools(input, request.signal);
+    if (!toolsResult.ok) return toolsResult;
+    const stream = this.#streamReply(input, [
+      ...replyParts,
+      ...toolsResult.value,
+    ]);
+    return ok(stream);
   };
 
   readonly usage = (): ContextUsage => {
@@ -118,6 +130,25 @@ class MockModel implements ModelConnection {
   };
 
   readonly dispose = (): void => undefined;
+
+  /**
+   * A tool runs when the input names it, with the whole input as its one
+   * argument, and its answer is a delta of its own after the reply. Enough to
+   * stage every promise the suite makes about tools without parsing anything.
+   */
+  async #callNamedTools(
+    input: string,
+    signal: AbortSignal,
+  ): Promise<Result<readonly string[], AiFailure>> {
+    const namedTools = this.#tools.filter((tool) => input.includes(tool.name));
+    const toolTexts: string[] = [];
+    for (const tool of namedTools) {
+      const toolResult = await runTool(tool, { input }, signal);
+      if (!toolResult.ok) return toolResult;
+      toolTexts.push(toolResult.value);
+    }
+    return ok(toolTexts);
+  }
 
   /** Null is the refusal: a schema with no reply configured for it. */
   #chooseReply(
@@ -186,7 +217,7 @@ const connectMock = async (
     const delayMs = config.delayMs ?? DEFAULTS.delayMs;
     await reportDownload(steps, delayMs, options.reportProgress);
   }
-  const model = new MockModel(config, options.session.history);
+  const model = new MockModel(config, options);
   return ok(model);
 };
 
@@ -194,6 +225,7 @@ export function makeMockProvider(config: MockConfig = {}): AiProvider {
   const backend: ModelBackend = {
     name: "mock",
     modalities: ["text"],
+    tools: true,
     availability: () => getAvailability(config),
     connect: (options) => connectMock(config, options),
   };
