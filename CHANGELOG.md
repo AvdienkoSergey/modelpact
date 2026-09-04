@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.1.0](https://github.com/AvdienkoSergey/modelpact/compare/v2.0.5...v2.1.0) (2026-09-04)
+
+
+### Features
+
+* a pageText tool, and the demo reads the page with it ([3c9b135](https://github.com/AvdienkoSergey/modelpact/commit/3c9b1351e36dbe4b2f31aed745e3a1850cc7e673))
+* hand tools to the session at open ([1470e78](https://github.com/AvdienkoSergey/modelpact/commit/1470e78bb9bc64674151e91471d5dfd3e80f22f2))
+
+
+### Bug Fixes
+
+* **ollama:** read the daemon's own word for a spent window ([c69a21a](https://github.com/AvdienkoSergey/modelpact/commit/c69a21a38a4b805e780775626a1817868d770f33))
+* **ollama:** read the daemon's own word for a spent window ([65dff9f](https://github.com/AvdienkoSergey/modelpact/commit/65dff9fca484b0d4d005b57f77bafa703815a632))
+
 ## [2.0.5](https://github.com/AvdienkoSergey/modelpact/compare/v2.0.4...v2.0.5) (2026-09-03)
 
 
