@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.2.2](https://github.com/AvdienkoSergey/modelpact/compare/v2.2.1...v2.2.2) (2026-09-05)
+
+
+### Refactoring
+
+* the engine alone, with the storeys moved out ([82999cd](https://github.com/AvdienkoSergey/modelpact/commit/82999cdd3365246cc430d80f934d3bb2a60ee391))
+* the engine alone, with the storeys moved out ([f7ac690](https://github.com/AvdienkoSergey/modelpact/commit/f7ac690ef5d5ff1ecb170c278234be875fba4f56))
+
 ## [2.2.1](https://github.com/AvdienkoSergey/modelpact/compare/v2.2.0...v2.2.1) (2026-09-04)
 
 

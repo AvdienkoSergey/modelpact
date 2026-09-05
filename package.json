@@ -1,6 +1,6 @@
 {
   "name": "modelpact",
-  "version": "2.2.1",
+  "version": "2.2.2",
   "description": "A contract for language-model backends, the lifecycle that holds it, and the suite that proves yours conforms",
   "keywords": [
     "llm",
