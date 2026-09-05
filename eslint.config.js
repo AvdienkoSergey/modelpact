@@ -4,12 +4,12 @@ import tseslint from "typescript-eslint";
 import prettier from "eslint-config-prettier";
 
 export default defineConfig(
-  // Vendored MDN copies, patch payloads and build output are not ours to lint.
-  // `demo/` joins them: it has its own tsconfig, so the type-aware rules here
-  // read it without types and report on what they cannot see — a `let` set
-  // from a cleanup closure comes back as "always falsy". `npm run demo:check`
-  // is what checks it.
-  { ignores: ["dist/**", "demo/**", "external/**", "docs/**", "patches/**"] },
+  // Vendored MDN copies and build output are not ours to lint. `demo/` joins
+  // them: it has its own tsconfig, so the type-aware rules here read it
+  // without types and report on what they cannot see — a `let` set from a
+  // cleanup closure comes back as "always falsy". `npm run demo:check` is what
+  // checks it.
+  { ignores: ["dist/**", "demo/**", "docs/**"] },
   {
     files: ["**/*.ts", "**/*.js"],
     extends: [

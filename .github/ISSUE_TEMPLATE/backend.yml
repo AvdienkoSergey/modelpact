@@ -6,7 +6,7 @@ body:
     attributes:
       value: |
         Backends written outside the package are how the published API is
-        tested. `external/webgpu-provider` found two real bugs that way, and
+        tested. The WebGPU backend in `modelpact-providers` found two real bugs that way, and
         both are fixed because someone wrote this issue's ancestor.
 
   - type: input

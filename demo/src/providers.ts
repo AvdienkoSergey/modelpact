@@ -1,20 +1,16 @@
 /**
  * The app's list of backends. One object, and its keys are the app's provider
- * names: the switch in `LABELS` below stays exhaustive because of it.
+ * names: the switch below stays exhaustive because of it.
  *
- * The first three are the same mock with different settings; the fourth is a
- * real model on a daemon. Nothing outside this file knows the difference, which
- * is the claim the rest of the demo is here to make honest — the picker changes
- * the backend and every other line stays as it was.
+ * Three entries, and the same mock behind all of them — a different setting
+ * each, so that a branch of the contract nobody can stage on demand becomes a
+ * line in a picker. There is nothing behind any of them on purpose: the
+ * transports that reach real models are `modelpact-providers`, and its demo is
+ * about what happens when something answers. This one is about what the
+ * contract promises whether anything answers or not.
  */
 
-import {
-  defineProviders,
-  makeMockProvider,
-  makeOllamaProvider,
-  makePromptApiProvider,
-} from "modelpact";
-import { makeWebGpuProvider } from "modelpact-webgpu";
+import { defineProviders, makeMockProvider } from "modelpact";
 
 /** Long enough to watch arrive, and to reach the stop button before it ends. */
 const generateReply = (input: string): readonly string[] => {
@@ -42,19 +38,6 @@ export const PROVIDERS = defineProviders({
       0, 0.06, 0.14, 0.23, 0.35, 0.44, 0.58, 0.7, 0.79, 0.88, 0.95, 1,
     ],
   }),
-  // A daemon on this machine, and the only entry with a model behind it. Absent
-  // one, `access` answers `unavailable` and the chip says so — which is the
-  // branch the other three cannot stage.
-  ollama: makeOllamaProvider({ model: "granite4:350m" }),
-  // Chrome's own, which needs no configuring and no daemon. On a browser
-  // without it `access` answers `unavailable`; on one with it undownloaded,
-  // the weights are gigabytes, which is what the consent button exists for.
-  "prompt-api": makePromptApiProvider(),
-  // A model in the tab on WebGPU, from a package written outside this one
-  // (`external/webgpu-provider`) and reached the way any third-party backend
-  // is: as a dependency. Weights are hundreds of megabytes into browser
-  // storage, behind the same button as Chrome's.
-  webgpu: makeWebGpuProvider({ model: "SmolLM2-360M-Instruct-q4f16_1-MLC" }),
 });
 
 export type ProviderName = keyof typeof PROVIDERS;
@@ -69,11 +52,5 @@ export function getProviderLabel(providerName: ProviderName): string {
       return "Mock · narrow window";
     case "mock-download":
       return "Mock · downloads first";
-    case "ollama":
-      return "Ollama · granite4:350m";
-    case "prompt-api":
-      return "Chrome · built-in model";
-    case "webgpu":
-      return "WebGPU · SmolLM2-360M";
   }
 }

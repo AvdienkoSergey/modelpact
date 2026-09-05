@@ -22,31 +22,27 @@ npm run dev
 | The progress line on first open  | the `needs-download` branch and its monitor                                     |
 | Reload, and it is still there    | `session.history()` out, `open({ history })` back in                            |
 | A second tab staying in step     | the `storage` event, not a library feature                                      |
-| The `ollama` entry answering     | a real model, through the same session as the three mocks                       |
 | "Download them" before a fetch   | the `needs-download` branch, not opened unasked                                 |
-| The `prompt-api` entry           | Chrome's own model, mapped by the same four answers                             |
-| The `webgpu` entry               | a backend from another package, installed like any other                        |
 | **Read the page** ticked         | `ModelRequest.tools`: the mock tool from `modelpact/tools`, run inside the turn |
 
-The picker holds six entries of one registry. Three are the mock with
-different settings; the others are Ollama, Chrome's built-in model, and a
-WebGPU backend from [`external/webgpu-provider`](../external/webgpu-provider),
-which this app depends on the way it would on any package from npm. Each was
-one line in [`src/providers.ts`](src/providers.ts) and nothing anywhere else.
-That is the claim the rest of this app exists to make honest.
+The picker holds three entries of one registry, and the same mock is behind all
+of them — a different setting each, so a branch of the contract nobody can
+stage on demand becomes a line in a picker. Each was one line in
+[`src/providers.ts`](src/providers.ts) and nothing anywhere else.
 
-The Ollama entry wants a daemon on `127.0.0.1:11434` holding `granite4:350m`.
-Without one it answers `unavailable` and the chip says so, which is the branch
-the three mocks cannot stage.
+Nothing here reaches a model, and that is the claim: every promise above is one
+the contract makes whether a model answers or not, so every spec runs on any
+machine. A picker with real models behind it is
+[modelpact-providers](https://github.com/AvdienkoSergey/modelpact-providers)'
+demo, and it makes the other half of the claim — that four transports answer
+the same way.
 
 **Read the page** hands the session one tool, `pageTitle`: the mock tool from
 [`modelpact/tools`](../src/tools/mock.ts) with the page's title behind it. The
-chip says `ready · tools` once a session has opened with it. On the mocks the
-tool runs when its name is in the message and what it said is the end of the
-answer; on Ollama the model decides; on Chrome 152 the session is refused at
-open, which is the notice you get. Each call shows in the record as a grey
-line — the name and the start of what came back — because the record itself
-holds only turns.
+chip says `ready · tools` once a session has opened with it, and the tool runs
+when its name is in the message, so what it said is the end of the answer. Each
+call shows in the record as a grey line — the name and the start of what came
+back — because the record itself holds only turns.
 
 The Chrome entry needs no configuring. What it usually lands on is
 `needs-download`, and that branch is not opened for you: Gemini Nano is
@@ -87,12 +83,11 @@ survive a bundler, React, and a person clicking.
 
 ## Notes
 
-`modelpact` is a dependency here at `file:..`, and `modelpact-webgpu` at
-`file:../external/webgpu-provider`. Both resolve through their own `exports`
-into `dist` — the same files `npm i` would hand a stranger — and neither has a
-path into anyone's `src/`. `predev` builds them first, so an edit to the
-library reaches this page after a rebuild and not before. That is deliberate:
-the library is developed against its tests, and this is its shop window.
+`modelpact` is a dependency here at `file:..`, resolved through its own
+`exports` into `dist` — the same files `npm i` would hand a stranger — with no
+path into `src/`. `predev` builds it first, so an edit to the library reaches
+this page after a rebuild and not before. That is deliberate: the library is
+developed against its tests, and this is its shop window.
 
 This directory is outside the repo's eslint: it has its own tsconfig, and
 `npm run demo:check` from the root is what type-checks it. CI installs its

@@ -203,10 +203,11 @@ export async function readStream(session: AiSession) {
 
 // --- 10. The monitor is the platform's, and ours passes for it ---
 // `LanguageModel.create()` hands its own `CreateMonitor` to the `monitor`
-// callback; because that object is a `DownloadMonitor`, the Prompt API provider
-// forwards it instead of translating it. `CreateMonitor` is ambient, from
-// `@types/dom-chromium-ai` named in tsconfig's `types`, so this line is the
-// only place the two declarations meet.
+// callback, and a backend on that platform can forward it instead of
+// translating it — which is only true while ours is a supertype of theirs.
+// `CreateMonitor` is ambient, from `@types/dom-chromium-ai` named in
+// tsconfig's `types`, and this line is the only reason that package is still
+// a dependency: it is the one place the two declarations meet.
 export const platformMonitor = (monitor: CreateMonitor): DownloadMonitor =>
   monitor;
 

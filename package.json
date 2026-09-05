@@ -1,14 +1,13 @@
 {
   "name": "modelpact",
   "version": "2.2.1",
-  "description": "A contract for language-model backends, and the test suite that proves yours conforms to it",
+  "description": "A contract for language-model backends, the lifecycle that holds it, and the suite that proves yours conforms",
   "keywords": [
     "llm",
-    "ollama",
-    "prompt-api",
     "contract-testing",
     "conformance",
     "adapter",
+    "session",
     "on-device",
     "typescript"
   ],
@@ -49,25 +48,18 @@
     "node": ">=22"
   },
   "scripts": {
-    "prepare": "patch-package",
     "build": "tsc -p tsconfig.build.json",
-    "test": "vitest run",
     "demo": "npm --prefix demo run dev",
     "demo:check": "npm --prefix demo run typecheck",
-    "external": "npm --prefix external/webgpu-provider test",
-    "external:surface": "npm --prefix external/webgpu-provider run check:surface",
-    "test:watch": "vitest",
-    "test:e2e": "playwright test",
-    "lint": "eslint .",
-    "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "typecheck": "tsc --noEmit && tsc -p e2e --noEmit",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
     "prepublishOnly": "npm run build",
-    "external:orchestrator": "npm --prefix external/orchestrator test",
-    "external:orchestrator:surface": "npm --prefix external/orchestrator run check:surface",
-    "external:agent": "npm --prefix external/agent test",
-    "external:agent:surface": "npm --prefix external/agent run check:surface"
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit && tsc -p e2e --noEmit"
   },
   "peerDependencies": {
     "vitest": ">=4"
@@ -84,7 +76,6 @@
     "@types/node": "^26.4.1",
     "eslint": "^10.9.1",
     "eslint-config-prettier": "^10.1.8",
-    "patch-package": "^8.0.1",
     "prettier": "^3.9.6",
     "typescript": "~6.0.3",
     "typescript-eslint": "^8.69.0",
