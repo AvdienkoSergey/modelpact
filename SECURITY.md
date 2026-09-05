@@ -30,8 +30,9 @@ and makes no network calls of its own — the transport belongs to the backend
 you choose:
 
 - **mock** — nothing leaves the process.
-- **prompt-api** — the browser's own model, on the user's device.
-- **ollama** — HTTP to the host you configured, `127.0.0.1:11434` by default.
+- **mock** — nowhere. It is the only backend here, and it has nothing behind
+  it; a backend that reaches a model is `modelpact-providers` or your own, and
+  where it sends what you type is its README's to answer.
 - **anything you write** — yours to review.
 
 So the surface worth attention here is what the library does with what a model
@@ -47,7 +48,7 @@ says, and what it hands a backend:
 - `AiFailure` carries a `cause`, which may hold an exception from the backend.
   Logging it wholesale can log a URL or a header the backend put there.
 - The published declarations name nothing a consumer does not have, and three
-  packages under `external/` check that on every change with `skipLibCheck`
+  the packages built on it check that on every change with `skipLibCheck`
   off.
 
 ## How releases are published

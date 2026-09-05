@@ -3,27 +3,28 @@
 [![npm](https://img.shields.io/npm/v/modelpact)](https://www.npmjs.com/package/modelpact)
 [![ci](https://github.com/AvdienkoSergey/modelpact/actions/workflows/ci.yml/badge.svg?event=pull_request)](https://github.com/AvdienkoSergey/modelpact/actions/workflows/ci.yml)
 ![dependencies: 0](https://img.shields.io/badge/dependencies-0-brightgreen)
-![min+gzip: 5.9 kB](https://img.shields.io/badge/min%2Bgzip-5.9%20kB-blue)
+![min+gzip: 3.3 kB](https://img.shields.io/badge/min%2Bgzip-3.3%20kB-blue)
 ![types: TypeScript](https://img.shields.io/badge/types-TypeScript-3178c6)
 ![node: ≥22](https://img.shields.io/badge/node-%E2%89%A522-339933)
 [![license: MIT](https://img.shields.io/badge/license-MIT-lightgrey)](LICENSE)
 
-**One way to talk to a local language model — the one built into the browser,
-Ollama on your machine, or a mock in your tests. Swap the backend, keep the
-code.**
+**One way to talk to a language model — the one built into the browser, a
+daemon on your machine, a cloud endpoint, or a mock in your tests. Swap the
+backend, keep the code.**
 
 ## Why you'd want it
 
-Chrome now ships a language model inside the browser. It runs on the user's
-device: free, offline, private, no API key. For a web app that is the best deal
-in AI — as long as your users are on Chrome.
+Every model speaks its own dialect. A different way to ask "are you available?",
+a different download story, different errors, a different streaming format,
+a different shape for a tool call. Support two of them and you maintain two
+integrations that share nothing; support four and you maintain four.
 
-Everyone else needs a fallback, and every fallback speaks its own dialect. A
-different way to ask "are you available?", a different download story, different
-errors, a different streaming format. Support two backends and you maintain two
-integrations that share nothing.
-
-modelpact is one dialect for all of them.
+modelpact is one dialect for all of them, and this package is only the dialect:
+the contract, the lifecycle that holds it, and the suite that proves a backend
+speaks it. The backends themselves live in
+[modelpact-providers](https://github.com/AvdienkoSergey/modelpact-providers),
+because a daemon's JSON and a browser's origin trial move on their own clocks
+and neither should move a contract.
 
 ## What you get
 
@@ -33,8 +34,12 @@ named. Everything after it is identical.
 ```ts
 const provider = makePromptApiProvider(); // Chrome's built-in model
 const provider = makeOllamaProvider({ model: "granite4:350m" }); // …or a daemon
+const provider = makeOpenAiProvider({ baseUrl, apiKey }); // …or an endpoint
 const provider = makeMockProvider(); // …or nothing at all, in tests
 ```
+
+The first three are `modelpact-providers`; the last one is here, because a
+contract needs a fixture more than it needs a transport.
 
 **Failures that say what to do next.** No parsing exception names. Each failure
 is a plain word with the data you need to act on it: `context-overflow` comes
@@ -65,39 +70,37 @@ green, it behaves like the others — not "probably", provably.
 
 ## See it before you install it
 
-[`demo/`](demo/) is one chat screen with a picker at the top. The picker holds
-six backends, and each of them was one line in
-[`demo/src/providers.ts`](demo/src/providers.ts) — nothing else on the screen
-knows which one is answering.
+[`demo/`](demo/) is one chat screen with a picker at the top, and there is
+nothing behind any entry in it.
 
 ```sh
 cd demo && npm install && npm run dev
 ```
 
-| Pick                                   | What answers                                                         |
-| -------------------------------------- | -------------------------------------------------------------------- |
-| `mock`, `mock-narrow`, `mock-download` | nothing: canned words, streamed one at a time, to stage every branch |
-| `ollama`                               | `granite4:350m` — 708 MB on your machine, offline once it is pulled  |
-| `prompt-api`                           | Chrome's built-in model, behind a consent button for its download    |
-| `webgpu`                               | `SmolLM2-360M` in the tab itself, from a package outside this repo   |
+| Pick            | What answers                                                      |
+| --------------- | ----------------------------------------------------------------- |
+| `mock`          | canned words, streamed one at a time                              |
+| `mock-narrow`   | the same, on a 60-token window, so the overflow branch is a click |
+| `mock-download` | the same, wanting weights first, so the consent branch is a click |
 
 <p align="center">
   <img src="docs/screenshots/demo-overflow.png" width="49%" alt="The mock on a 60-token window: three turns in, the meter reads 140 / 60 and the overflow notice has fired once.">
-  <img src="docs/screenshots/demo-chrome.png" width="49%" alt="Chrome's built-in model with no weights on this machine yet: the chip says fetching weights, and the download waits for the button.">
+  <img src="docs/screenshots/demo-chat.png" width="49%" alt="The demo mid-answer: words arriving one at a time and a Stop button in place of Send.">
 </p>
 
-Everything on that screen is one of the promises above: words arriving one at a
-time, a **Stop** that leaves the session open, the interrupted answer gone from
-the record, a meter, a chip per `AccessKind`, an overflow warning that fires
-once, a download bar that waits to be asked, and a conversation that survives a
-reload and stays in step across two tabs. Ten Playwright specs — one per
-promise, one per real backend in the picker, and one for a tool reading the
-page — drive it in Chromium and are the repo's whole browser suite.
+That is deliberate. Every promise on this page is a promise the contract makes
+whether a model answers or not: words arriving one at a time, a **Stop** that
+leaves the session open, the interrupted answer gone from the record, a meter, a
+chip per `AccessKind`, an overflow warning that fires once, a download bar that
+waits to be asked, a tool called inside a turn, and a conversation that survives
+a reload and stays in step across two tabs. Seven Playwright specs drive it in
+Chromium, and every one of them runs on any machine — no daemon, no browser
+model, no GPU.
 
-The last three rows are the point. A real model on a daemon, the browser's own
-model, and a model on WebGPU are not three integrations here. They are three
-entries in a registry, and the switch over that registry stays exhaustive — add
-a seventh and the build says where a sentence is missing.
+A picker with real models behind it is
+[modelpact-providers](https://github.com/AvdienkoSergey/modelpact-providers)'
+demo, and it is a different claim: that four transports answer the same way.
+This one is the claim underneath it.
 
 ## The step, and what stands on it
 
@@ -109,57 +112,40 @@ models, a policy, a loop over turns: orchestration.
 
 modelpact is the middle storey, and it is deliberately only that.
 
-| Storey        | What lives there                      | Where                                                                                |
-| ------------- | ------------------------------------- | ------------------------------------------------------------------------------------ |
-| transport     | one model, four answers               | `ModelBackend` — three inside the package, two written outside it                    |
-| session       | one conversation, the guarantees      | **this package**, and nothing above it                                               |
-| orchestration | several models, a policy, a tool loop | [`external/orchestrator`](external/orchestrator), [`external/agent`](external/agent) |
+| Storey        | What lives there                      | Where                                                                                                                                                    |
+| ------------- | ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| transport     | one model, four answers               | [modelpact-providers](https://github.com/AvdienkoSergey/modelpact-providers), or your own                                                                |
+| session       | one conversation, the guarantees      | **this package**, and nothing above it                                                                                                                   |
+| orchestration | several models, a policy, a tool loop | [modelpact-orchestrator](https://github.com/AvdienkoSergey/modelpact-orchestrator), [modelpact-agent](https://github.com/AvdienkoSergey/modelpact-agent) |
 
-That is the direction this repo is developed in. The package does not grow up
-the stairs; what grows is what stands on it, and [`external/`](external/) is
-where that is tried — each package written the way a stranger would write it,
-against `modelpact` at `file:../..`, through the `exports` map, with no path into
-`src/`. Whatever the published API is not enough for shows up there first.
+Each storey is a repository, and each one is a stranger to this package: it
+depends on `modelpact` from npm, through the `exports` map, with no path into
+`src/`. That is not tidiness. Whatever the published API is not enough for
+shows up out there first, and three times now it has:
 
-**A transport from outside.** [`external/webgpu-provider`](external/webgpu-provider)
-is a model in the tab on WebGPU, through `@mlc-ai/web-llm`. It answers the same
-four questions, and `describeContract` runs against it: 34 green. It also found
-two real bugs — a published type that named a global consumers do not have, and a
-backend that errored its own stream and landed in `unknown` instead of `aborted`.
-Both fixed; both now have a guard. The demo depends on this package the way it
-would on anything from npm.
+**A transport found a hole in the types.** The WebGPU backend is a model in the
+tab through `@mlc-ai/web-llm`, and it compiled here and broke there: a
+published type named `LanguageModel`, an ambient global from a dev dependency
+nobody downstream receives. The same suite then caught the backend erroring its
+own stream on abort, which lands in `unknown` instead of `aborted`. Both fixed,
+both guarded, and the guard — the emitted `.d.ts` read with `types: []` — is
+now the first check in every package built on this one.
 
-**One storey up.** [`external/orchestrator`](external/orchestrator) puts Claude
-from `claude -p` and a local Ollama model in one conversation, with a policy
-deciding which side answers. Its first version was a `ModelBackend` composed of
-two — and it passed the suite while every guarantee leaked: a meter over two
-windows, an overflow that meant nothing for the other side. Rebuilt one storey
-up it needed **nothing new from the package**: `open({ history })` was already
-the door for handing a side the turns it missed. That is the test of whether a
-storey is right.
+**A policy found the storey.** The orchestrator's first version was a
+`ModelBackend` composed of two, and it passed the conformance suite while every
+guarantee leaked: a meter over two windows, an overflow that meant nothing for
+the other side. Rebuilt one storey up it needed **nothing new from the
+package** — `open({ history })` was already the door for handing a side the
+turns it missed. That is the test of whether a storey is right.
 
-**An agent, on the same storey.** [`external/agent`](external/agent) is a
-tool-calling loop over a `Brain` — two methods, `ask` and `record` — which is an
-`AiSession` or an orchestrator behind a two-line adapter. When it was written
-this contract had no tool protocol, and the loop did not need one: a tool call
-is a schema, honoured or refused and never ignored, and where a backend refuses
-(`claude -p` does, measured) the refusal picks prose mode rather than ending
-the run. A tool result goes back as the next user turn. The reference agent's
-shape survived; its `bash` tool and the hundred lines of path containment it
-needs did not.
+**A loop found the missing protocol.** The agent faked tool calls with a
+constrained schema, because this contract had none. It worked, and it cost two
+model calls per tool and a record that called a tool result a user turn — while
+Ollama was returning native calls and the Prompt API spec was taking `tools` at
+`create`. Tools are in `ModelRequest` now, executed inside the turn, refused by
+name where a backend has no protocol. See [Tools](#tools).
 
-**Tools, once two transports could execute them.** That loop is what showed
-where a protocol was owed: Ollama returns native calls and the Prompt API spec
-takes `tools` at `create`, so faking both with a schema meant two model calls
-per tool and a record that called a tool result a user turn. Tools are now in
-`ModelRequest` — handed over at `access`, loaded into the window at open,
-executed inside the turn by the backend or the platform — and a backend with
-no protocol refuses by name rather than answering as if none were asked for.
-See [Tools](#tools).
-
-Three packages, three storeys, and the thing they share is sixteen exports, a
-door for transports, and a test suite. Each export is there because something outside needed it; what is
-not there — storage, a router, a third role — is not missing, it lives
+What is not here — storage, a router, a third role — is not missing; it lives
 upstairs. The next transport is an afternoon and a green suite. The next policy
 or loop is a consumer, not a feature.
 
@@ -186,10 +172,10 @@ Swap `makeMockProvider` for any other provider and nothing below it changes.
 That is the whole point of the line.
 
 > **What is in.** The contract, its type-level test, the lifecycle, the
-> conformance suite, tools, and three backends — the mock, Ollama, and Chrome's
-> built-in model. Everything a backend needs is exported, and two more backends
-> plus an orchestrator and an agent have been written outside the package on
-> exactly that — see [The step, and what stands on it](#the-step-and-what-stands-on-it).
+> conformance suite, tools, and one backend with nothing behind it. Everything
+> a backend needs is exported at `modelpact/backend`, and four transports, an
+> orchestrator and an agent have been written outside the package on exactly
+> that — see [The step, and what stands on it](#the-step-and-what-stands-on-it).
 
 ### Bring your own backend
 
@@ -221,8 +207,8 @@ describeContract("echo", () => echo);
 `modelpact/backend` is the door for a transport author: the four answers, the
 helpers that fill them — `createProvider`, `ndjsonLines`, `runTool` — and the
 types they name, and nothing an app reaches for. A backend written against it
-depends on that small surface rather than on the whole package; the two
-outside this repo do, and their surface guards read this entry with `types`
+depends on that small surface rather than on the whole package; every backend
+outside this repo does, and their surface guards read this entry with `types`
 empty. The main entry keeps re-exporting the same names until the next major.
 
 `modelpact/testing` needs `vitest`, which is an optional peer dependency: an app
@@ -270,7 +256,8 @@ Chrome 152 does — `availability()` says `available` with tools and `create()`
 throws `InvalidStateError`, measured — and that lands as `invalid-state` from
 `open`. Either way the move is the same: ask again without tools, and read the
 call out of a schema-constrained answer, which is what
-[`external/agent`](external/agent) already does.
+[modelpact-agent](https://github.com/AvdienkoSergey/modelpact-agent) already
+does.
 
 `modelpact/tools` is a third entry, and what it holds is the fixture: a mock
 tool, the counterpart of the mock provider. Words in, words out, a record of
@@ -282,10 +269,10 @@ of their own, the way real transports are.
 Tools cost window. Measured on Ollama across three models, one tool with a
 one-sentence description and a few parameters is about 50 tokens, plus 100 to
 200 for the preamble, and on Gemini Nano the window is 9 216. Eight tools are
-five per cent of it; thirty-two are a fifth. Ollama resends them every turn;
-the Prompt API loads them once. `OllamaConfig.maxToolRounds` bounds how many
-times one turn may come back with calls before it is failed, because a small
-model asked for the same listing until something stopped it.
+five per cent of it; thirty-two are a fifth. A stateless transport resends them
+every turn; the Prompt API loads them once. How many rounds one turn may take
+before it is failed is the backend's to bound, because a small model asked for
+the same listing until something stopped it.
 
 ### Several backends in one app
 
@@ -322,43 +309,43 @@ and every version carries a
 saying which commit and which workflow built it.
 
 **Small on purpose.** ESM only, zero runtime dependencies, and the whole entry
-is 16.9 kB minified, 5.9 kB gzipped, before tree-shaking takes the providers
-you do not import. `modelpact/testing` is a second entry with `vitest` as an
-optional peer, so an app that only consumes a provider never loads it.
+is 8.4 kB minified, 3.3 kB gzipped — it lost two thirds of its weight the day
+the transports moved out, which is the clearest thing anyone can say about what
+a contract costs. `modelpact/testing`, `modelpact/tools` and
+`modelpact/backend` are separate entries, so an app that only consumes a
+provider loads none of them.
 
-**Where it runs.** Node ≥ 22 for the Ollama backend and the suites; any current
-browser for a session over `fetch`; Chrome for the built-in model. The
-published declarations are checked by three outside packages with `skipLibCheck`
+**Where it runs.** Node ≥ 22 and any current browser: nothing here names a
+platform, and the one backend in it has nothing behind it. What a transport
+needs of a runtime is that transport's business. The published declarations are
+checked from outside by every package built on this one, with `skipLibCheck`
 off and `types: []` — if a `.d.ts` ever names a global you do not have, that
 build goes red before yours does.
 
-**What a pull request has to pass.** Typecheck, lint, format, the vitest suites,
-ten Playwright specs in Chromium, and the three packages under `external/` —
-their own tests and their surface guards — on every change, in one run.
+**What a pull request has to pass.** Typecheck, lint, format, the vitest suites
+and seven Playwright specs in Chromium, on every change, in one run. Every one
+of them runs on a machine with no model on it, which is why this repository's
+CI has no daemon in it and no browser weights to cache.
 
-**Next.** An OpenAI-compatible HTTP backend: one transport for
-`/v1/chat/completions`, which is the cloud APIs, vLLM, LM Studio and a
-llama.cpp server at once. Same four answers, same suite, and native tool calls
-the way Ollama's are handled. Then a Chrome that opens a session with tools:
-when one does, what its `execute` is handed, what a rejection does and what an
-abort does are three measurements the Prompt API backend is written to
-survive either way.
+**Next.** A record that can hold a tool turn. `AiMessage` is a role and a
+string, so a session opened with tools answers correctly and then remembers the
+conversation without the calls in it — hand that record back to `open` and the
+tool turns are gone. The spec solves it by making `content` a list of parts,
+`tool-call` and `tool-response` among them, and that is the same door image and
+audio will want. It is a major, and it is the next one.
 
 ---
 
 ## A Deep Dive for Techno-Geeks
 
-`@types/dom-chromium-ai` follows the IDL, and the IDL is looser than
-[the spec](docs/mdn/prompt_api/spec.md):
-several states the algorithm rejects at runtime are writable in the types. A TS
-error at the keyboard beats a `TypeError` in the browser, so
-[`patches/@types+dom-chromium-ai+0.0.17.patch`](patches/@types+dom-chromium-ai+0.0.17.patch) closes the gap.
-
-The patch is applied by `patch-package` on `prepare`, which runs for this repo
-and never for anyone installing the published package. `skipLibCheck` is
-deliberately **off** in `tsconfig.json`: these declarations are the only
-third-party ones in the project, and type-checking them is how a patch that
-stops applying cleanly gets caught.
+Zero runtime dependencies, and one dev dependency that is not a tool:
+`@types/dom-chromium-ai`. It is here for a single line —
+[`src/types.test-d.ts`](src/types.test-d.ts) proves that the browser's own
+`CreateMonitor` satisfies this contract's `DownloadMonitor`, which is what lets
+a backend on that platform forward the object instead of translating it. The
+[vendored spec](docs/mdn/prompt_api/spec.md) beside it is where the failure
+vocabulary came from: kinds are cut by the caller's next move, and reading the
+algorithm is how the cuts were chosen.
 
 ## The contract
 

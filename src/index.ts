@@ -5,7 +5,14 @@
  * Three ways in. An app picks a provider and talks to a session — `AiSession`
  * and the failure vocabulary are the whole surface for that. An app that ships
  * several picks from its own registry. A backend author fills in `ModelBackend`
- * and hands it to `createProvider`, then proves it with `modelpact/testing`.
+ * and hands it to `createProvider`, then proves it with `modelpact/testing`;
+ * `modelpact/backend` is the door for that, and `modelpact-providers` is what
+ * came through it.
+ *
+ * The one provider here has nothing behind it. It is the contract's fixture,
+ * not a way to reach a model: every guarantee below is asserted against it on
+ * every commit, and the transports that reach real models are their own
+ * package for the same reason a policy is.
  */
 
 export { createProvider } from "./providers/create.js";
@@ -15,8 +22,6 @@ export {
   type ProviderRegistry,
 } from "./providers/registry.js";
 export { makeMockProvider, type MockConfig } from "./providers/mock.js";
-export { makeOllamaProvider, type OllamaConfig } from "./providers/ollama.js";
-export { makePromptApiProvider } from "./providers/prompt-api.js";
 
 export type { AiProvider, ProviderName } from "./types/provider.js";
 export type {

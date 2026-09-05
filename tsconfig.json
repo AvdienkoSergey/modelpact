@@ -24,13 +24,15 @@
     "verbatimModuleSyntax": true,
     "esModuleInterop": true,
     "resolveJsonModule": true,
-    // Listed rather than auto-discovered: automatic @types inclusion did not
-    // pick this up here, and naming it says which globals the project expects.
-    // "node" joins the list when `client.ts` arrives and reads process.env —
-    // until then browser-side code cannot reach for `process` by accident.
+    // Listed rather than auto-discovered, and down to one entry: nothing here
+    // talks to the platform any more, and the one place these declarations are
+    // still read is case 10 of `src/types.test-d.ts`, where the contract's
+    // `DownloadMonitor` is proved to be satisfied by the browser's own
+    // `CreateMonitor`. "node" is deliberately absent, so nothing in `src`
+    // reaches for `process` by accident.
     "types": ["dom-chromium-ai"]
-    // No "skipLibCheck": the only third-party declarations here are the ones
-    // `patches/` rewrites, and checking them is how a broken patch is caught.
+    // No "skipLibCheck": one third-party declaration file, and reading it is
+    // free — a version of it that stopped compiling would be worth knowing.
   },
   "include": ["src"]
 }

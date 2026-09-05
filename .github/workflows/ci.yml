@@ -34,8 +34,7 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       # `npm ci` over `npm install`: it installs the lockfile exactly and fails
-      # if package.json has drifted from it. It runs `prepare`, which is
-      # patch-package, which the dom-chromium-ai types depend on.
+      # if package.json has drifted from it.
       - run: npm ci
 
       # One job rather than three, so the install is paid once. `!cancelled()`
@@ -71,102 +70,10 @@ jobs:
           cache: npm
       - run: npm ci
       # The specs drive the demo, which playwright.config.ts boots itself.
+      # The demo depends on this package at `file:` and `predev` builds it, so
+      # the dev server does not start without its own install.
       - run: npm ci --prefix demo
-      # The demo depends on it at `file:` and `predev` builds it, so the
-      # dev server does not start without its own install.
-      - run: npm ci --prefix external/webgpu-provider
       # Chromium only, matching the one project in playwright.config.ts.
       # `--with-deps` pulls the system libraries the runner image lacks.
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e
-
-  # The package as a stranger receives it: `exports` and nothing else, no path
-  # into `src/`. It is a job of its own because it installs an engine the rest
-  # of the repo has no use for, and because it should be able to go red on its
-  # own — a backend that cannot be written from out there is a fact about this
-  # package, not about that directory.
-  outside:
-    if: ${{ !startsWith(github.head_ref, 'release-please--') }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version-file: .nvmrc
-          cache: npm
-      - run: npm ci
-      - run: npm ci --prefix external/webgpu-provider
-      # First, because it is the guard: every exported name, `skipLibCheck`
-      # off, no ambient types handed over for free.
-      - run: npm run external:surface
-      - if: ${{ !cancelled() }}
-        run: npm run external
-      # The second stranger: a child-process transport and a router that is
-      # itself a backend. Its live suite skips here — no claude, no daemon.
-      - run: npm ci --prefix external/orchestrator
-      - if: ${{ !cancelled() }}
-        run: npm run external:orchestrator:surface
-      - if: ${{ !cancelled() }}
-        run: npm run external:orchestrator
-      # The third stranger: a tool-calling loop on the storey above a session.
-      # `--legacy-peer-deps` because npm 10 crashes resolving the optional
-      # `vitest` peer of a `file:` linked package.
-      - run: npm ci --prefix external/agent --legacy-peer-deps
-      - if: ${{ !cancelled() }}
-        run: npm run external:agent:surface
-      - if: ${{ !cancelled() }}
-        run: npm run external:agent
-
-  # The same suites again, with a daemon answering. The `check` job runs them
-  # with none, and the ollama specs skip there — this job is what makes that
-  # skip a fact about the environment rather than a hole.
-  ollama:
-    if: ${{ !startsWith(github.head_ref, 'release-please--') }}
-    runs-on: ubuntu-latest
-    env:
-      # 708MB, and the smallest thing that still answers in words.
-      OLLAMA_MODEL: granite4:350m
-      # The daemon's own default is a system path the cache below cannot reach.
-      OLLAMA_MODELS: /home/runner/.ollama/models
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version-file: .nvmrc
-          cache: npm
-      - run: npm ci
-      - run: npm ci --prefix demo
-      # The demo depends on it at `file:` and `predev` builds it, so the
-      # dev server does not start without its own install.
-      - run: npm ci --prefix external/webgpu-provider
-      - run: npx playwright install --with-deps chromium
-
-      - run: curl -fsSL https://ollama.com/install.sh | sh
-      # Weights, not the binary: the pull below is a no-op on a hit and the
-      # whole download on a miss.
-      - uses: actions/cache@v6
-        with:
-          path: /home/runner/.ollama/models
-          key: ollama-models-granite4-350m
-
-      - name: Serve, and pull if the cache missed
-        run: |
-          # The installer starts its own under systemd, with models somewhere
-          # this job does not cache — ours replaces it rather than fights it.
-          sudo systemctl stop ollama || true
-          nohup ollama serve > /tmp/ollama.log 2>&1 &
-          for _ in $(seq 1 30); do
-            curl -sf http://127.0.0.1:11434/api/tags > /dev/null && break
-            sleep 1
-          done
-          ollama pull "$OLLAMA_MODEL"
-
-      - run: npm test
-      - if: ${{ !cancelled() }}
-        run: npm run test:e2e
-      - if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: playwright-report
-          path: playwright-report/
-          retention-days: 7

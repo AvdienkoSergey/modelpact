@@ -1,9 +1,0 @@
-{
-  // The published declarations as a consumer without `@types/node` reads them:
-  // `skipLibCheck` off, `types: []`. A public signature that names a node type
-  // (`ChildProcess`, `Readable`) fails here — which is why the spawner is a
-  // structural interface and not the real thing.
-  "extends": "./tsconfig.json",
-  "compilerOptions": { "skipLibCheck": false, "types": [] },
-  "include": ["surface/check.ts"]
-}

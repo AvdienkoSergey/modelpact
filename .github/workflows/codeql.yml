@@ -32,7 +32,7 @@ jobs:
       - uses: actions/checkout@v7
       # No build step and no `npm ci`: this package emits nothing at analysis
       # time that the sources do not already say, and CodeQL reads TypeScript
-      # directly. The suites, the demo and external/ are read too — they are
+      # directly. The suites and the demo are read too — they are
       # the code a stranger runs first.
       - uses: github/codeql-action/init@v4
         with:

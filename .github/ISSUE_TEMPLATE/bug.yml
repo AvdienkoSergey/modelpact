@@ -15,9 +15,9 @@ body:
       description: The backend that was answering when it went wrong.
       options:
         - mock
-        - prompt-api (Chrome's built-in model)
-        - ollama
-        - webgpu (modelpact-webgpu)
+        - mock
+        - a backend from modelpact-providers
+        - a backend of my own
         - a backend I wrote
     validations:
       required: true

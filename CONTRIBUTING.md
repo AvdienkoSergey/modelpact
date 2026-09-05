@@ -8,7 +8,7 @@ contract gets wrong. Both are below.
 ```sh
 git clone https://github.com/AvdienkoSergey/modelpact
 cd modelpact
-npm ci            # runs `prepare`, which is patch-package — see the README
+npm ci
 npm test
 ```
 
@@ -27,10 +27,7 @@ npm test            # vitest: the unit suites and the contract suite
 npm run test:e2e    # Playwright in Chromium; the demo server starts itself
 npm run demo:check  # the demo has its own tsconfig and is outside eslint
 
-npm run external               # the WebGPU backend, written from outside
-npm run external:orchestrator  # two models and a policy
-npm run external:agent         # a tool-calling loop
-npm run external:surface       # the published .d.ts, read as a stranger reads it
+npm run demo:check             # the demo, against the built package
 ```
 
 The last one is worth understanding before you change a public type: it
@@ -99,22 +96,22 @@ Two rules that the suite will find for you, and that are easier to know first:
   Both sibling packages hit this.
 
 If the backend needs an API the package does not export, that is worth an
-issue on its own — it is the kind of gap `external/` exists to find.
+issue on its own — it is the kind of gap the packages built on this one exist to find.
 
 ## Where a change belongs
 
 Three storeys, and the answer to "should this go in the library" is usually
 "which storey is it":
 
-| Storey        | What lives there                      | Where it goes                |
-| ------------- | ------------------------------------- | ---------------------------- |
-| transport     | one model, four answers               | a `ModelBackend`             |
-| session       | one conversation, the guarantees      | this package                 |
-| orchestration | several models, a policy, a tool loop | a consumer — see `external/` |
+| Storey        | What lives there                      | Where it goes                               |
+| ------------- | ------------------------------------- | ------------------------------------------- |
+| transport     | one model, four answers               | a `ModelBackend`                            |
+| session       | one conversation, the guarantees      | this package                                |
+| orchestration | several models, a policy, a tool loop | `modelpact-orchestrator`, `modelpact-agent` |
 
 A router that picks between two models is not a backend, however well it fits
 the slot: it was tried, it passed the suite, and every guarantee leaked. That
-story is in [`external/orchestrator`](external/orchestrator/README.md) and it
+story is in [modelpact-orchestrator](https://github.com/AvdienkoSergey/modelpact-orchestrator) and it
 is the shortest way to understand where the line is.
 
 ## Pull requests

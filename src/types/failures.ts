@@ -6,7 +6,7 @@ import type { ContextUsage } from "./usage.js";
 // prettier-ignore
 /**
  * The contract's failure vocabulary: any refusal from any provider — browser,
- * Ollama, mock — is one of these kinds.
+ * a daemon, the mock — is one of these kinds.
  *
  * The set is cut by the caller's next move, not by exception name: kinds merge
  * where the reaction would be the same and split where it differs, even when

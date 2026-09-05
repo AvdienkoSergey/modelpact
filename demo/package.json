@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build:deps": "npm --prefix .. run build && npm --prefix ../external/webgpu-provider run build:only",
+    "build:deps": "npm --prefix .. run build",
     "predev": "npm run build:deps",
     "prebuild": "npm run build:deps",
     "pretypecheck": "npm run build:deps",
@@ -15,8 +15,7 @@
   "dependencies": {
     "modelpact": "file:..",
     "react": "^19.2.8",
-    "react-dom": "^19.2.8",
-    "modelpact-webgpu": "file:../external/webgpu-provider"
+    "react-dom": "^19.2.8"
   },
   "devDependencies": {
     "@types/react": "^19.2.18",
