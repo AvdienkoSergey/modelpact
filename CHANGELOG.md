@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.2.3](https://github.com/AvdienkoSergey/modelpact/compare/v2.2.2...v2.2.3) (2026-09-16)
+
+
+### Build System
+
+* **deps-dev:** bump the dev-dependencies group with 5 updates ([bf916e1](https://github.com/AvdienkoSergey/modelpact/commit/bf916e15d54f945ba4ac6a532a69a189bc862c99))
+
 ## [2.2.2](https://github.com/AvdienkoSergey/modelpact/compare/v2.2.1...v2.2.2) (2026-09-05)
 
 
